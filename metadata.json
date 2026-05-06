@@ -1,0 +1,13 @@
+{
+  "name": "Vibe",
+  "description": "A beautiful social app for short videos, real-time chatting, and creative content filters.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "Real-time Chat",
+    "Short Video Feed",
+    "AI Content Enhancement"
+  ]
+}
