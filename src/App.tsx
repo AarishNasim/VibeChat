@@ -1,8 +1,30 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { motion, AnimatePresence } from 'motion/react';
 import { Home, Search, MessageCircle, User, Heart, MessageSquare, Share2, Music2, Sparkles } from 'lucide-react';
-import { AppView, Video, Conversation, Message } from './types.ts';
+import { AppView, Video, Conversation, Message, Profile } from './types.ts';
+
+const GUEST_PROFILE: Profile = {
+  name: 'Guest Vibe',
+  handle: '@guest_vibe',
+  avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=guest',
+  bio: 'Login to reveal your personalized bio, story highlights, and creator stats.',
+  posts: 0,
+  followers: '0',
+  following: 0,
+  storyHighlights: ['Login', 'Profile', 'Stories']
+};
+
+const KAABI_PROFILE: Profile = {
+  name: 'KaaBI@420',
+  handle: 'KaaBI@420',
+  avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=kaabi',
+  bio: 'Add a bio to your KaaBI@420 profile.',
+  posts: 0,
+  followers: '0',
+  following: 0,
+  storyHighlights: ['New', 'Music', 'Vibes']
+};
 
 // Mock Data
 const MOCK_VIDEOS: Video[] = [
@@ -52,6 +74,15 @@ const FILTERS = [
 export default function App() {
   const [currentView, setCurrentView] = useState<AppView>('home');
   const [activeChat, setActiveChat] = useState<string | null>(null);
+  const [isLoginOpen, setIsLoginOpen] = useState(false);
+  const [loginStep, setLoginStep] = useState<'phone' | 'otp'>('phone');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [authenticated, setAuthenticated] = useState(false);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [profile, setProfile] = useState<Profile>(GUEST_PROFILE);
   const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
@@ -60,6 +91,12 @@ export default function App() {
     socketRef.current.on('connect', () => {
       console.log('Connected to socket server');
     });
+
+    // Load profile from localStorage
+    const savedProfile = localStorage.getItem('vibeStreamProfile');
+    if (savedProfile) {
+      setProfile(JSON.parse(savedProfile));
+    }
 
     return () => {
       socketRef.current?.disconnect();
@@ -81,9 +118,29 @@ export default function App() {
           <div className="px-4 py-2 bg-bg-alt border border-gray-800 rounded-full text-[10px] text-indigo-vibe-light font-bold tracking-widest uppercase">
             ts_node_v1.2.0
           </div>
-          <div className="w-10 h-10 rounded-full border border-gray-800 bg-bg-card overflow-hidden">
-             <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=me" className="w-full h-full" alt="" />
-          </div>
+          {authenticated ? (
+            <button
+              onClick={() => setIsProfileOpen(true)}
+              className="px-4 py-2 bg-indigo-vibe text-black rounded-full font-black uppercase tracking-[0.18em] text-[10px] shadow-lg shadow-indigo-vibe/20 transition-transform active:scale-95"
+            >
+              {profile.handle}
+            </button>
+          ) : (
+            <button
+              onClick={() => setIsLoginOpen(true)}
+              className="px-4 py-2 bg-white text-black rounded-full font-black uppercase tracking-[0.18em] text-[10px] shadow-xl shadow-white/10 transition-transform active:scale-95"
+            >
+              Login
+            </button>
+          )}
+          <button
+            onClick={() => {
+              authenticated ? setIsProfileOpen(true) : setIsLoginOpen(true);
+            }}
+            className="w-10 h-10 rounded-full border border-gray-800 bg-bg-card overflow-hidden transition-all hover:ring-2 hover:ring-indigo-vibe/50"
+          >
+            <img src={authenticated ? profile.avatar : 'https://api.dicebear.com/7.x/avataaars/svg?seed=me'} className="w-full h-full" alt="Profile" />
+          </button>
         </div>
       </header>
 
@@ -189,6 +246,91 @@ export default function App() {
         <NavButton icon={MessageCircle} label="Inbox" active={currentView === 'chat'} onClick={() => setCurrentView('chat')} />
         <NavButton icon={User} label="Me" active={currentView === 'profile'} onClick={() => setCurrentView('profile')} />
       </nav>
+
+
+      <AnimatePresence>
+        {isLoginOpen && (
+          <LoginModal
+            loginStep={loginStep}
+            phoneNumber={phoneNumber}
+            otpCode={otpCode}
+            errorMessage={loginError}
+            onClose={() => {
+              setIsLoginOpen(false);
+              setLoginStep('phone');
+              setLoginError('');
+            }}
+            onPhoneChange={(value) => {
+              setPhoneNumber(value);
+              setLoginError('');
+            }}
+            onOtpChange={(value) => {
+              setOtpCode(value);
+              setLoginError('');
+            }}
+            onSendOtp={() => {
+              if (!phoneNumber.trim()) {
+                setLoginError('Please enter your mobile number.');
+                return;
+              }
+              if (phoneNumber.replace(/\D/g, '') !== '7764051248') {
+                setLoginError('No account found for this number.');
+                return;
+              }
+              setLoginStep('otp');
+              setLoginError('');
+            }}
+            onVerifyOtp={() => {
+              if (!otpCode.trim()) {
+                setLoginError('Please enter the OTP.');
+                return;
+              }
+              if (otpCode.trim() !== '72899') {
+                setLoginError('Invalid OTP. Please try again.');
+                return;
+              }
+              setProfile(KAABI_PROFILE);
+              setAuthenticated(true);
+              setIsLoginOpen(false);
+              setLoginStep('phone');
+              setOtpCode('');
+              setLoginError('');
+              localStorage.setItem('vibeStreamProfile', JSON.stringify(KAABI_PROFILE));
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isProfileOpen && (
+          <ProfileModal
+            profile={profile}
+            authenticated={authenticated}
+            isEditing={isEditingProfile}
+            onClose={() => {
+              setIsProfileOpen(false);
+              setIsEditingProfile(false);
+            }}
+            onEdit={() => setIsEditingProfile(true)}
+            onSave={(newProfile) => {
+              setProfile(newProfile);
+              localStorage.setItem('vibeStreamProfile', JSON.stringify(newProfile));
+              setIsEditingProfile(false);
+            }}
+            onLogin={() => {
+              setIsProfileOpen(false);
+              setIsLoginOpen(true);
+            }}
+            onLogout={() => {
+              setAuthenticated(false);
+              setProfile(GUEST_PROFILE);
+              localStorage.removeItem('vibeStreamProfile');
+              setIsProfileOpen(false);
+              setIsEditingProfile(false);
+            }}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Footer - Bento Style */}
       <footer className="mt-4 pb-2 hidden md:flex justify-between items-center text-[10px] text-gray-500 uppercase tracking-[0.2em] px-4 font-bold">
@@ -380,7 +522,7 @@ function NavButton({ icon: Icon, active, onClick }: { icon: any, label: string, 
   );
 }
 
-function VideoPlayer({ video }: { video: Video }) {
+function VideoPlayer({ video }: { video: Video; key?: React.Key }) {
   const [liked, setLiked] = useState(false);
   
   return (
@@ -558,6 +700,295 @@ function ChatWindow({ conversationId, user, onClose, socket }: { conversationId:
           Send
         </motion.button>
       </div>
+    </motion.div>
+  );
+}
+
+function LoginModal({
+  loginStep,
+  phoneNumber,
+  otpCode,
+  errorMessage,
+  onClose,
+  onPhoneChange,
+  onOtpChange,
+  onSendOtp,
+  onVerifyOtp,
+}: {
+  loginStep: 'phone' | 'otp';
+  phoneNumber: string;
+  otpCode: string;
+  errorMessage: string;
+  onClose: () => void;
+  onPhoneChange: (value: string) => void;
+  onOtpChange: (value: string) => void;
+  onSendOtp: () => void;
+  onVerifyOtp: () => void;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 p-4"
+    >
+      <motion.div
+        initial={{ y: 40, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        exit={{ y: 40, opacity: 0 }}
+        transition={{ type: 'spring', stiffness: 280, damping: 22 }}
+        className="w-full max-w-md bento-card border border-white/10 bg-bg-card p-8 shadow-2xl shadow-black/40"
+      >
+        <div className="flex items-start justify-between gap-4 mb-8">
+          <div>
+            <h2 className="text-2xl font-black tracking-tight">Login with Mobile</h2>
+            <p className="text-sm text-gray-400 mt-2">Enter your phone and verify with OTP to continue.</p>
+          </div>
+          <button onClick={onClose} className="text-gray-300 hover:text-white text-xl leading-none">×</button>
+        </div>
+
+        {errorMessage && (
+          <div className="rounded-3xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-red-200 text-sm mb-4">
+            {errorMessage}
+          </div>
+        )}
+        {loginStep === 'phone' ? (
+          <div className="space-y-5">
+            <label className="block text-[10px] uppercase tracking-[0.3em] text-gray-500">Mobile Number</label>
+            <input
+              value={phoneNumber}
+              onChange={(e) => onPhoneChange(e.target.value)}
+              type="tel"
+              placeholder="+1 234 567 8901"
+              className="w-full bg-bg-alt border border-gray-800 rounded-3xl px-5 py-4 text-white outline-none focus:border-indigo-vibe transition-all"
+            />
+            <button
+              onClick={onSendOtp}
+              className="w-full bg-indigo-vibe text-black rounded-3xl py-4 font-black uppercase tracking-[0.2em] text-[10px] shadow-xl shadow-indigo-vibe/20 active:scale-95 transition-transform"
+            >
+              Send OTP
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-5">
+            <div className="text-[11px] text-gray-400 uppercase tracking-[0.2em]">OTP sent to 7764051248</div>
+            <label className="block text-[10px] uppercase tracking-[0.3em] text-gray-500">Enter OTP</label>
+            <input
+              value={otpCode}
+              onChange={(e) => onOtpChange(e.target.value)}
+              type="text"
+              inputMode="numeric"
+              placeholder="123456"
+              className="w-full bg-bg-alt border border-gray-800 rounded-3xl px-5 py-4 text-white outline-none focus:border-indigo-vibe transition-all"
+            />
+            <button
+              onClick={onVerifyOtp}
+              className="w-full bg-white text-black rounded-3xl py-4 font-black uppercase tracking-[0.2em] text-[10px] shadow-xl shadow-white/10 active:scale-95 transition-transform"
+            >
+              Verify OTP
+            </button>
+            <button
+              onClick={onClose}
+              className="w-full border border-gray-800 rounded-3xl py-4 text-gray-300 uppercase tracking-[0.2em] text-[10px] hover:border-indigo-vibe"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function ProfileModal({
+  profile,
+  authenticated,
+  isEditing,
+  onClose,
+  onEdit,
+  onSave,
+  onLogin,
+  onLogout,
+}: {
+  profile: Profile;
+  authenticated: boolean;
+  isEditing: boolean;
+  onClose: () => void;
+  onEdit: () => void;
+  onSave: (newProfile: Profile) => void;
+  onLogin: () => void;
+  onLogout: () => void;
+}) {
+  const [editBio, setEditBio] = useState(profile.bio);
+  const [editAvatar, setEditAvatar] = useState(profile.avatar);
+
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        setEditAvatar(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleSave = () => {
+    const newProfile = { ...profile, bio: editBio, avatar: editAvatar };
+    onSave(newProfile);
+  };
+
+  if (!authenticated) {
+    return (
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 p-4"
+      >
+        <motion.div
+          initial={{ y: 40, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: 40, opacity: 0 }}
+          transition={{ type: 'spring', stiffness: 280, damping: 22 }}
+          className="w-full max-w-md bento-card border border-white/10 bg-bg-card p-8 shadow-2xl shadow-black/40 text-center"
+        >
+          <h2 className="text-2xl font-black tracking-tight mb-4">Login Required</h2>
+          <p className="text-gray-400 mb-8">Please login to access your profile and edit your information.</p>
+          <button
+            onClick={onLogin}
+            className="w-full bg-indigo-vibe text-black rounded-3xl py-4 font-black uppercase tracking-[0.2em] text-[10px] shadow-xl shadow-indigo-vibe/20 active:scale-95 transition-transform"
+          >
+            Login Now
+          </button>
+          <button
+            onClick={onClose}
+            className="w-full mt-4 border border-gray-800 rounded-3xl py-4 text-gray-300 uppercase tracking-[0.2em] text-[10px] hover:border-indigo-vibe"
+          >
+            Cancel
+          </button>
+        </motion.div>
+      </motion.div>
+    );
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 p-4"
+    >
+      <motion.div
+        initial={{ y: 40, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        exit={{ y: 40, opacity: 0 }}
+        transition={{ type: 'spring', stiffness: 280, damping: 22 }}
+        className="w-full max-w-lg bento-card border border-white/10 bg-bg-card p-8 shadow-2xl shadow-black/40"
+      >
+        <div className="flex items-start justify-between gap-4 mb-8">
+          <div>
+            <h2 className="text-2xl font-black tracking-tight">Profile</h2>
+            <p className="text-sm text-gray-400 mt-2">{isEditing ? 'Edit your profile information' : 'View your profile details'}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-300 hover:text-white text-xl leading-none">×</button>
+        </div>
+
+        {isEditing ? (
+          <div className="space-y-6">
+            <div className="flex flex-col items-center gap-4">
+              <div className="relative">
+                <img src={editAvatar} className="w-24 h-24 rounded-full border-4 border-indigo-vibe/40" alt="Profile" />
+                <label className="absolute bottom-0 right-0 bg-indigo-vibe text-black rounded-full p-2 cursor-pointer shadow-lg">
+                  <input type="file" accept="image/*" onChange={handleAvatarChange} className="hidden" />
+                  <span className="text-xs font-black">+</span>
+                </label>
+              </div>
+              <p className="text-[10px] uppercase tracking-[0.3em] text-gray-500">Click + to change profile picture</p>
+            </div>
+
+            <div>
+              <label className="block text-[10px] uppercase tracking-[0.3em] text-gray-500 mb-2">Bio</label>
+              <textarea
+                value={editBio}
+                onChange={(e) => setEditBio(e.target.value)}
+                className="w-full bg-bg-alt border border-gray-800 rounded-3xl px-5 py-4 text-white outline-none focus:border-indigo-vibe transition-all resize-none"
+                rows={4}
+                placeholder="Tell us about yourself..."
+              />
+            </div>
+
+            <div className="flex gap-4">
+              <button
+                onClick={handleSave}
+                className="flex-1 bg-indigo-vibe text-black rounded-3xl py-4 font-black uppercase tracking-[0.2em] text-[10px] shadow-xl shadow-indigo-vibe/20 active:scale-95 transition-transform"
+              >
+                Save Changes
+              </button>
+              <button
+                onClick={() => {
+                  setEditBio(profile.bio);
+                  setEditAvatar(profile.avatar);
+                  onClose(); // This will close the modal and reset editing
+                }}
+                className="flex-1 border border-gray-800 rounded-3xl py-4 text-gray-300 uppercase tracking-[0.2em] text-[10px] hover:border-indigo-vibe"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <div className="flex flex-col items-center gap-4">
+              <img src={profile.avatar} className="w-24 h-24 rounded-full border-4 border-indigo-vibe/40" alt="Profile" />
+              <div className="text-center">
+                <h3 className="text-xl font-black tracking-tight">{profile.name}</h3>
+                <p className="text-sm uppercase tracking-[0.25em] text-gray-500">{profile.handle}</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4 text-center">
+              <div className="rounded-3xl bg-bg-alt border border-gray-800 p-4">
+                <p className="text-lg font-black">{profile.posts}</p>
+                <p className="text-[9px] uppercase tracking-[0.2em] text-gray-500 mt-1">Posts</p>
+              </div>
+              <div className="rounded-3xl bg-bg-alt border border-gray-800 p-4">
+                <p className="text-lg font-black">{profile.followers}</p>
+                <p className="text-[9px] uppercase tracking-[0.2em] text-gray-500 mt-1">Followers</p>
+              </div>
+              <div className="rounded-3xl bg-bg-alt border border-gray-800 p-4">
+                <p className="text-lg font-black">{profile.following}</p>
+                <p className="text-[9px] uppercase tracking-[0.2em] text-gray-500 mt-1">Following</p>
+              </div>
+            </div>
+
+            <div>
+              <p className="text-sm leading-relaxed text-gray-300">{profile.bio}</p>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {profile.storyHighlights.map((item) => (
+                <span key={item} className="bg-white/5 text-[10px] uppercase tracking-[0.24em] px-3 py-2 rounded-full border border-white/10">{item}</span>
+              ))}
+            </div>
+
+            <div className="flex flex-col gap-3">
+              <button
+                onClick={onEdit}
+                className="w-full bg-white text-black rounded-3xl py-4 font-black uppercase tracking-[0.2em] text-[10px] shadow-xl shadow-white/10 active:scale-95 transition-transform"
+              >
+                Edit Profile
+              </button>
+              <button
+                onClick={onLogout}
+                className="w-full border border-red-500 text-red-200 rounded-3xl py-4 font-black uppercase tracking-[0.2em] text-[10px] hover:bg-red-500/10 transition-colors"
+              >
+                Logout
+              </button>
+            </div>
+          </div>
+        )}
+      </motion.div>
     </motion.div>
   );
 }

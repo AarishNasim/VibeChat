@@ -18,7 +18,17 @@ async function startServer() {
     }
   });
 
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT || 3000);
+  const HMR_PORT = Number(process.env.HMR_PORT || 24678);
+
+  httpServer.on("error", (error: NodeJS.ErrnoException) => {
+    if (error.code === "EADDRINUSE") {
+      console.error(`Port ${PORT} is already in use. Set PORT to a free port and try again.`);
+    } else {
+      console.error(error);
+    }
+    process.exit(1);
+  });
 
   // Real-time Chat Logic
   io.on("connection", (socket) => {
@@ -42,7 +52,12 @@ async function startServer() {
   // Vite Middleware for Dev
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: {
+          port: HMR_PORT,
+        },
+      },
       appType: "spa",
     });
     app.use(vite.middlewares);

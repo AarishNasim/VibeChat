@@ -29,4 +29,15 @@ export interface Conversation {
   unread: boolean;
 }
 
+export interface Profile {
+  name: string;
+  handle: string;
+  avatar: string;
+  bio: string;
+  posts: number;
+  followers: string;
+  following: number;
+  storyHighlights: string[];
+}
+
 export type AppView = 'home' | 'discover' | 'chat' | 'profile';
