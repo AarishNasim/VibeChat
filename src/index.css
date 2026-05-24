@@ -43,3 +43,49 @@
 .snap-start {
   scroll-snap-align: start;
 }
+
+/* Day/Night Theme Overrides */
+.light {
+  --color-bg-main: #f3f4f6;
+  --color-bg-card: #ffffff;
+  --color-bg-alt: #f9fafb;
+}
+
+.light, .light .bento-card {
+  color: #111827 !important;
+  border-color: #e5e7eb !important;
+}
+
+.light h1, .light h2, .light h3, .light h4, .light p, .light span {
+  color: #1f2937 !important;
+}
+
+.light .text-gray-400, .light .text-gray-500, .light .text-gray-300 {
+  color: #6b7280 !important;
+}
+
+.light .border-gray-800, .light .border-gray-800\/50, .light .border-white\/10 {
+  border-color: #e5e7eb !important;
+}
+
+.light input, .light textarea {
+  background-color: #f9fafb !important;
+  border-color: #d1d5db !important;
+  color: #111827 !important;
+}
+
+.light input::placeholder, .light textarea::placeholder {
+  color: #9ca3af !important;
+}
+
+.light .text-white {
+  color: #111827 !important;
+}
+
+.light .bg-white\/5 {
+  background-color: rgba(0, 0, 0, 0.05) !important;
+}
+
+.light header span {
+  color: #6b7280 !important;
+}

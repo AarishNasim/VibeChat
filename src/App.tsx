@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { motion, AnimatePresence } from 'motion/react';
-import { Home, Search, MessageCircle, User, Heart, MessageSquare, Share2, Music2, Sparkles, Upload, Volume2, VolumeX, Play, Pause } from 'lucide-react';
+import { Home, Search, MessageCircle, User, Heart, MessageSquare, Share2, Music2, Sparkles, Upload, Volume2, VolumeX, Play, Pause, Sun, Moon } from 'lucide-react';
 import { AppView, Video, Conversation, Message, Profile } from './types.ts';
 import { supabase } from './lib/supabase';
 
@@ -98,6 +98,14 @@ export default function App() {
   const [profile, setProfile] = useState<Profile>(GUEST_PROFILE);
   const socketRef = useRef<Socket | null>(null);
 
+  const [isLightMode, setIsLightMode] = useState(() => {
+    return localStorage.getItem('vibechatTheme') === 'light';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('vibechatTheme', isLightMode ? 'light' : 'dark');
+  }, [isLightMode]);
+
   useEffect(() => {
     socketRef.current = io();
 
@@ -187,7 +195,7 @@ export default function App() {
   }, [currentView]);
 
   return (
-    <div className="relative h-full w-full max-w-6xl mx-auto bg-bg-main text-white overflow-hidden flex flex-col font-sans px-4 pt-4 pb-24 md:px-8 md:pt-4 md:pb-24">
+    <div className={`relative h-full w-full max-w-6xl mx-auto bg-bg-main text-white overflow-hidden flex flex-col font-sans px-4 pt-4 pb-24 md:px-8 md:pt-4 md:pb-24 ${isLightMode ? 'light' : ''}`}>
       {/* Header - Bento Style */}
       <header className="flex justify-between items-center mb-8 px-2">
         <div className="flex items-center gap-4">
@@ -197,30 +205,40 @@ export default function App() {
             <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-gray-500">Videos &bull; Chat &bull; Friends</span>
           </div>
         </div>
-        <div className="hidden md:flex gap-4 items-center">
-          {authenticated ? (
-            <button
-              onClick={() => setIsProfileOpen(true)}
-              className="px-4 py-2 coral-orange-gradient text-white rounded-full font-black uppercase tracking-[0.18em] text-[10px] shadow-lg shadow-orange-500/20 transition-transform active:scale-95"
-            >
-              {profile.handle}
-            </button>
-          ) : (
-            <button
-              onClick={() => setIsLoginOpen(true)}
-              className="px-4 py-2 coral-orange-gradient text-white rounded-full font-black uppercase tracking-[0.18em] text-[10px] shadow-xl shadow-orange-500/20 transition-transform active:scale-95"
-            >
-              Login
-            </button>
-          )}
+        <div className="flex gap-3 md:gap-4 items-center">
+          {/* Day/Night Theme Toggle */}
           <button
-            onClick={() => {
-              authenticated ? setIsProfileOpen(true) : setIsLoginOpen(true);
-            }}
-            className="w-10 h-10 rounded-full border border-gray-800 bg-bg-card overflow-hidden transition-all hover:ring-2 hover:ring-indigo-vibe/50"
+            onClick={() => setIsLightMode(!isLightMode)}
+            className="w-10 h-10 rounded-full border border-gray-800 bg-bg-card flex items-center justify-center transition-all hover:ring-2 hover:ring-indigo-vibe/50 text-white cursor-pointer"
           >
-            <img src={authenticated ? profile.avatar : 'https://api.dicebear.com/7.x/avataaars/svg?seed=me'} className="w-full h-full" alt="Profile" />
+            {isLightMode ? <Sun className="w-5 h-5 text-orange" /> : <Moon className="w-5 h-5 text-indigo-vibe-light" />}
           </button>
+
+          <div className="hidden md:flex gap-4 items-center">
+            {authenticated ? (
+              <button
+                onClick={() => setIsProfileOpen(true)}
+                className="px-4 py-2 coral-orange-gradient text-white rounded-full font-black uppercase tracking-[0.18em] text-[10px] shadow-lg shadow-orange-500/20 transition-transform active:scale-95"
+              >
+                {profile.handle}
+              </button>
+            ) : (
+              <button
+                onClick={() => setIsLoginOpen(true)}
+                className="px-4 py-2 coral-orange-gradient text-white rounded-full font-black uppercase tracking-[0.18em] text-[10px] shadow-xl shadow-orange-500/20 transition-transform active:scale-95"
+              >
+                Login
+              </button>
+            )}
+            <button
+              onClick={() => {
+                authenticated ? setIsProfileOpen(true) : setIsLoginOpen(true);
+              }}
+              className="w-10 h-10 rounded-full border border-gray-800 bg-bg-card overflow-hidden transition-all hover:ring-2 hover:ring-indigo-vibe/50"
+            >
+              <img src={authenticated ? profile.avatar : 'https://api.dicebear.com/7.x/avataaars/svg?seed=me'} className="w-full h-full" alt="Profile" />
+            </button>
+          </div>
         </div>
       </header>
 
@@ -565,7 +583,7 @@ function DiscoverView() {
   );
 }
 
-function ProfileView({ profile, authenticated, videos, onLogout }: { profile: Profile; authenticated: boolean; videos: any[]; onLogout: () => void }) {
+function ProfileView({ profile, authenticated, videos, onLogout, onVideoClick }: { profile: Profile; authenticated: boolean; videos: any[]; onLogout: () => void; onVideoClick: (id: string) => void }) {
   if (!authenticated) {
     return (
       <div className="h-full flex flex-col items-center justify-center text-center p-8">
@@ -589,9 +607,9 @@ function ProfileView({ profile, authenticated, videos, onLogout }: { profile: Pr
       exit={{ scale: 1.05, opacity: 0 }}
       className="h-full overflow-y-auto no-scrollbar"
     >
-      <div className="grid grid-cols-1 md:grid-cols-12 md:grid-rows-6 gap-6 min-h-full pb-48">
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-6 min-h-full pb-48">
         {/* Profile Card */}
-        <div className="md:col-span-4 md:row-span-6 bento-card p-8 flex flex-col items-center h-fit">
+        <div className="md:col-span-4 bento-card p-8 flex flex-col items-center h-fit">
           <div className="relative mb-8">
             <div className="w-40 h-40 rounded-[2.5rem] p-1.5 bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 shadow-2xl shadow-indigo-500/20">
               <div className="w-full h-full rounded-[2.2rem] border-[6px] border-bg-card overflow-hidden bg-bg-card">
@@ -638,7 +656,7 @@ function ProfileView({ profile, authenticated, videos, onLogout }: { profile: Pr
         </div>
 
         {/* Content Feed Grid */}
-        <div className="md:col-span-8 md:row-span-6 bento-card p-8">
+        <div className="md:col-span-8 bento-card p-8 h-fit">
           <div className="flex items-center gap-8 mb-8 pb-4 border-b border-gray-800/50 text-xs font-black uppercase tracking-[0.2em]">
             <span className="text-white border-b-2 border-coral pb-4">My Vibes</span>
             <span className="text-gray-500 hover:text-white transition-colors cursor-pointer pb-4">Liked</span>
@@ -651,7 +669,11 @@ function ProfileView({ profile, authenticated, videos, onLogout }: { profile: Pr
               </div>
             ) : (
               myVibes.map((v) => (
-                <div key={v.id} className="aspect-square bg-bg-alt rounded-2xl border border-gray-800 overflow-hidden relative group cursor-pointer">
+                <div
+                  key={v.id}
+                  onClick={() => onVideoClick(v.id)}
+                  className="aspect-square bg-bg-alt rounded-2xl border border-gray-800 overflow-hidden relative group cursor-pointer"
+                >
                   {v.url.match(/\.(jpeg|jpg|gif|png|webp)(\?.*)?$/i) ? (
                     <img src={v.url} className="w-full h-full object-cover" alt="" />
                   ) : (
