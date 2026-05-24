@@ -105,11 +105,51 @@ export default function App() {
       console.log('Connected to socket server');
     });
 
-    // Load profile from localStorage
+    // Load profile from localStorage as a fast default
     const savedProfile = localStorage.getItem('vibechatProfile');
     if (savedProfile) {
-      setProfile(JSON.parse(savedProfile));
+      const parsed = JSON.parse(savedProfile);
+      setProfile(parsed);
+      if (parsed.handle !== GUEST_PROFILE.handle) {
+        setAuthenticated(true);
+      }
     }
+
+    // Check active Supabase session for persistent database syncing
+    async function checkSession() {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        // Fetch fresh profile row from the public.users database table
+        const { data: userData } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', session.user.id)
+          .single();
+
+        let activeProfile = null;
+        if (savedProfile) {
+          activeProfile = JSON.parse(savedProfile);
+        }
+
+        if (userData) {
+          const mergedProfile = {
+            id: session.user.id,
+            name: activeProfile?.name || userData.username || 'KaaBI',
+            handle: userData.username || activeProfile?.handle || '@KaaBI',
+            avatar: userData.avatar_url || activeProfile?.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=kaabi',
+            bio: userData.bio || activeProfile?.bio || 'Creator bio here.',
+            posts: activeProfile?.posts || 0,
+            followers: activeProfile?.followers || '0',
+            following: activeProfile?.following || 0,
+            storyHighlights: activeProfile?.storyHighlights || ['Highlights']
+          };
+          setProfile(mergedProfile);
+          setAuthenticated(true);
+          localStorage.setItem('vibechatProfile', JSON.stringify(mergedProfile));
+        }
+      }
+    }
+    checkSession();
 
     return () => {
       socketRef.current?.disconnect();
@@ -130,6 +170,7 @@ export default function App() {
         const formattedVideos = data.map((v: any) => ({
           id: v.id,
           url: v.url,
+          user_id: v.user_id,
           user: { name: v.users?.username || 'user', avatar: v.users?.avatar_url || 'https://api.dicebear.com/7.x/avataaars/svg?seed=user' },
           description: v.description || '',
           likes: v.likes || 0,
@@ -146,7 +187,7 @@ export default function App() {
   }, [currentView]);
 
   return (
-    <div className="relative h-full w-full max-w-6xl mx-auto bg-bg-main text-white overflow-hidden flex flex-col font-sans px-4 pt-4 pb-20 md:px-8 md:pt-4 md:pb-8">
+    <div className="relative h-full w-full max-w-6xl mx-auto bg-bg-main text-white overflow-hidden flex flex-col font-sans px-4 pt-4 pb-24 md:px-8 md:pt-4 md:pb-24">
       {/* Header - Bento Style */}
       <header className="flex justify-between items-center mb-8 px-2">
         <div className="flex items-center gap-4">
@@ -272,12 +313,17 @@ export default function App() {
 
           {currentView === 'profile' && (
             <div className="md:col-span-12 h-full">
-              <ProfileView profile={profile} authenticated={authenticated} onLogout={() => {
-                setAuthenticated(false);
-                setProfile(GUEST_PROFILE);
-                localStorage.removeItem('vibechatProfile');
-                setCurrentView('home');
-              }} />
+              <ProfileView 
+                profile={profile} 
+                authenticated={authenticated} 
+                videos={videos}
+                onLogout={() => {
+                  setAuthenticated(false);
+                  setProfile(GUEST_PROFILE);
+                  localStorage.removeItem('vibechatProfile');
+                  setCurrentView('home');
+                }} 
+              />
             </div>
           )}
         </AnimatePresence>
@@ -393,10 +439,22 @@ export default function App() {
               setIsEditingProfile(false);
             }}
             onEdit={() => setIsEditingProfile(true)}
-            onSave={(newProfile) => {
+            onSave={async (newProfile) => {
               setProfile(newProfile);
               localStorage.setItem('vibechatProfile', JSON.stringify(newProfile));
               setIsEditingProfile(false);
+
+              if (authenticated && newProfile.id) {
+                const { error } = await supabase.from('users').upsert({
+                  id: newProfile.id,
+                  username: newProfile.handle,
+                  avatar_url: newProfile.avatar,
+                  bio: newProfile.bio
+                });
+                if (error) {
+                  console.error('Error saving profile to database:', error);
+                }
+              }
             }}
             onLogin={() => {
               setIsProfileOpen(false);
@@ -507,7 +565,7 @@ function DiscoverView() {
   );
 }
 
-function ProfileView({ profile, authenticated, onLogout }: { profile: Profile; authenticated: boolean; onLogout: () => void }) {
+function ProfileView({ profile, authenticated, videos, onLogout }: { profile: Profile; authenticated: boolean; videos: any[]; onLogout: () => void }) {
   if (!authenticated) {
     return (
       <div className="h-full flex flex-col items-center justify-center text-center p-8">
@@ -517,6 +575,11 @@ function ProfileView({ profile, authenticated, onLogout }: { profile: Profile; a
       </div>
     );
   }
+
+  // Filter videos that belong to this logged-in user (match by user_id or username handle)
+  const myVibes = videos.filter(
+    (v) => v.user_id === profile.id || v.user?.name === profile.handle
+  );
 
   return (
     <motion.div
@@ -553,7 +616,7 @@ function ProfileView({ profile, authenticated, onLogout }: { profile: Profile; a
               <p className="text-[8px] text-gray-500 font-bold uppercase tracking-widest mt-2">Followers</p>
             </div>
             <div className="bg-bg-alt/50 p-4 rounded-3xl border border-gray-800">
-              <p className="text-xl font-black leading-none">{profile.posts}</p>
+              <p className="text-xl font-black leading-none">{myVibes.length}</p>
               <p className="text-[8px] text-gray-500 font-bold uppercase tracking-widest mt-2">Posts</p>
             </div>
           </div>
@@ -582,11 +645,25 @@ function ProfileView({ profile, authenticated, onLogout }: { profile: Profile; a
             <span className="text-gray-500 hover:text-white transition-colors cursor-pointer pb-4">Saved</span>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            {Array.from({ length: 12 }).map((_, i) => (
-              <div key={i} className="aspect-square bg-bg-alt rounded-2xl border border-gray-800 overflow-hidden relative group">
-                <div className="absolute inset-0 bg-coral/10 opacity-0 group-hover:opacity-100 transition-opacity" />
+            {myVibes.length === 0 ? (
+              <div className="col-span-full py-16 text-center text-gray-500 font-bold uppercase tracking-widest text-[10px] border-2 border-dashed border-gray-800/50 rounded-3xl">
+                No vibes uploaded yet.
               </div>
-            ))}
+            ) : (
+              myVibes.map((v) => (
+                <div key={v.id} className="aspect-square bg-bg-alt rounded-2xl border border-gray-800 overflow-hidden relative group cursor-pointer">
+                  {v.url.match(/\.(jpeg|jpg|gif|png|webp)(\?.*)?$/i) ? (
+                    <img src={v.url} className="w-full h-full object-cover" alt="" />
+                  ) : (
+                    <video src={v.url} className="w-full h-full object-cover" muted loop playsInline />
+                  )}
+                  <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4 text-white text-xs font-black">
+                    <span className="flex items-center gap-1">❤️ {v.likes}</span>
+                    <span className="flex items-center gap-1">💬 {v.comments}</span>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>
@@ -895,51 +972,51 @@ function VideoPlayer({ video }: { video: Video; key?: React.Key }) {
       <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/90 w-full h-full pointer-events-none z-10" />
 
       {/* Interactions Sidebar - Sleek Instagram Style (Transparent, Drop Shadow, Smaller) */}
-      <div className="absolute right-4 bottom-6 md:right-6 md:bottom-10 flex flex-col items-center gap-5 md:gap-7 z-20">
+      <div className="absolute right-4 bottom-6 md:right-6 md:bottom-10 flex flex-col items-center gap-4.5 md:gap-6 z-20">
         <div className="group flex flex-col items-center gap-0.5 cursor-pointer" onClick={() => setLiked(!liked)}>
           <motion.div
             animate={{ scale: liked ? [1, 1.2, 1] : 1 }}
-            className="w-9 h-9 md:w-11 md:h-11 flex items-center justify-center transition-all active:scale-90 hover:scale-110 drop-shadow-[0_2px_8px_rgba(0,0,0,0.6)]"
+            className="w-8 h-8 md:w-10 md:h-10 flex items-center justify-center transition-all active:scale-90 hover:scale-110 drop-shadow-[0_2px_8px_rgba(0,0,0,0.6)]"
           >
-            <Heart className={`w-7 h-7 md:w-9 md:h-9 transition-colors ${liked ? 'fill-red-500 text-red-500' : 'text-white'}`} />
+            <Heart className={`w-6 h-6 md:w-7.5 md:h-7.5 transition-colors ${liked ? 'fill-red-500 text-red-500' : 'text-white'}`} />
           </motion.div>
-          <span className="text-[11px] font-black tracking-wider text-white drop-shadow-[0_1.5px_4px_rgba(0,0,0,0.7)] mt-0.5">{video.likes + (liked ? 1 : 0)}</span>
+          <span className="text-[10px] md:text-[11px] font-black tracking-wider text-white drop-shadow-[0_1.5px_4px_rgba(0,0,0,0.7)] mt-0.5">{video.likes + (liked ? 1 : 0)}</span>
         </div>
 
         <div className="group flex flex-col items-center gap-0.5 cursor-pointer">
-          <div className="w-9 h-9 md:w-11 md:h-11 flex items-center justify-center transition-all active:scale-90 hover:scale-110 drop-shadow-[0_2px_8px_rgba(0,0,0,0.6)]">
-            <MessageSquare className="w-7 h-7 md:w-9 md:h-9 text-white" />
+          <div className="w-8 h-8 md:w-10 md:h-10 flex items-center justify-center transition-all active:scale-90 hover:scale-110 drop-shadow-[0_2px_8px_rgba(0,0,0,0.6)]">
+            <MessageSquare className="w-6 h-6 md:w-7.5 md:h-7.5 text-white" />
           </div>
-          <span className="text-[11px] font-black tracking-wider text-white drop-shadow-[0_1.5px_4px_rgba(0,0,0,0.7)] mt-0.5">{video.comments}</span>
+          <span className="text-[10px] md:text-[11px] font-black tracking-wider text-white drop-shadow-[0_1.5px_4px_rgba(0,0,0,0.7)] mt-0.5">{video.comments}</span>
         </div>
 
         {/* Volume/Audio Toggle Button (Only for Videos) */}
         {!isImage && (
           <div className="group flex flex-col items-center gap-0.5 cursor-pointer" onClick={toggleMute}>
-            <div className="w-9 h-9 md:w-11 md:h-11 flex items-center justify-center transition-all active:scale-90 hover:scale-110 drop-shadow-[0_2px_8px_rgba(0,0,0,0.6)]">
+            <div className="w-8 h-8 md:w-10 md:h-10 flex items-center justify-center transition-all active:scale-90 hover:scale-110 drop-shadow-[0_2px_8px_rgba(0,0,0,0.6)]">
               {isMuted ? (
-                <VolumeX className="w-7 h-7 md:w-9 md:h-9 text-white" />
+                <VolumeX className="w-6 h-6 md:w-7.5 md:h-7.5 text-white" />
               ) : (
-                <Volume2 className="w-7 h-7 md:w-9 md:h-9 text-white" />
+                <Volume2 className="w-6 h-6 md:w-7.5 md:h-7.5 text-white" />
               )}
             </div>
-            <span className="text-[11px] font-black tracking-wider text-white drop-shadow-[0_1.5px_4px_rgba(0,0,0,0.7)] mt-0.5">
+            <span className="text-[10px] md:text-[11px] font-black tracking-wider text-white drop-shadow-[0_1.5px_4px_rgba(0,0,0,0.7)] mt-0.5">
               {isMuted ? 'Mute' : 'Audio'}
             </span>
           </div>
         )}
 
         <div className="group flex flex-col items-center gap-0.5 cursor-pointer">
-          <div className="w-9 h-9 md:w-11 md:h-11 flex items-center justify-center transition-all active:scale-90 hover:scale-110 drop-shadow-[0_2px_8px_rgba(0,0,0,0.6)]">
-            <Share2 className="w-7 h-7 md:w-9 md:h-9 text-white" />
+          <div className="w-8 h-8 md:w-10 md:h-10 flex items-center justify-center transition-all active:scale-90 hover:scale-110 drop-shadow-[0_2px_8px_rgba(0,0,0,0.6)]">
+            <Share2 className="w-6 h-6 md:w-7.5 md:h-7.5 text-white" />
           </div>
-          <span className="text-[11px] font-black tracking-wider text-white drop-shadow-[0_1.5px_4px_rgba(0,0,0,0.7)] mt-0.5">Share</span>
+          <span className="text-[10px] md:text-[11px] font-black tracking-wider text-white drop-shadow-[0_1.5px_4px_rgba(0,0,0,0.7)] mt-0.5">Share</span>
         </div>
 
         <motion.div
           animate={{ rotate: 360 }}
           transition={{ duration: 4, repeat: Infinity, ease: 'linear' }}
-          className="w-8 h-8 md:w-10 md:h-10 rounded-full p-1.5 bg-black/40 border border-white/20 shadow-lg shadow-black/50 overflow-hidden flex items-center justify-center drop-shadow-[0_2px_6px_rgba(0,0,0,0.6)] mt-1"
+          className="w-7.5 h-7.5 md:w-9 md:h-9 rounded-full p-1.5 bg-black/40 border border-white/20 shadow-lg shadow-black/50 overflow-hidden flex items-center justify-center drop-shadow-[0_2px_6px_rgba(0,0,0,0.6)] mt-1"
         >
           <Music2 className="w-full h-full text-white" />
         </motion.div>
