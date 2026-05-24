@@ -40,4 +40,4 @@ export interface Profile {
   storyHighlights: string[];
 }
 
-export type AppView = 'home' | 'discover' | 'chat' | 'profile';
+export type AppView = 'home' | 'discover' | 'chat' | 'upload' | 'profile';
