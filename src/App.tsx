@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { motion, AnimatePresence } from 'motion/react';
-import { Home, Search, MessageCircle, User, Heart, MessageSquare, Share2, Music2, Sparkles, Upload } from 'lucide-react';
+import { Home, Search, MessageCircle, User, Heart, MessageSquare, Share2, Music2, Sparkles, Upload, Volume2, VolumeX } from 'lucide-react';
 import { AppView, Video, Conversation, Message, Profile } from './types.ts';
 import { supabase } from './lib/supabase';
 
@@ -88,8 +88,8 @@ export default function App() {
   const [videos, setVideos] = useState<Video[]>(MOCK_VIDEOS);
   const [activeChat, setActiveChat] = useState<string | null>(null);
   const [isLoginOpen, setIsLoginOpen] = useState(false);
-  const [loginStep, setLoginStep] = useState<'phone' | 'otp'>('phone');
-  const [phoneNumber, setPhoneNumber] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [otpCode, setOtpCode] = useState('');
   const [loginError, setLoginError] = useState('');
   const [authenticated, setAuthenticated] = useState(false);
@@ -139,8 +139,11 @@ export default function App() {
         setVideos(formattedVideos);
       }
     }
-    fetchVideos();
-  }, []);
+    
+    if (currentView === 'home') {
+      fetchVideos();
+    }
+  }, [currentView]);
 
   return (
     <div className="relative h-full w-full max-w-6xl mx-auto bg-bg-main text-white overflow-hidden flex flex-col font-sans px-4 pt-4 pb-20 md:px-8 md:pt-4 md:pb-8">
@@ -250,7 +253,20 @@ export default function App() {
 
           {currentView === 'upload' && (
             <div className="md:col-span-12 h-full">
-              <UploadView />
+              {authenticated ? (
+                <UploadView profile={profile} onUploadComplete={() => setCurrentView('home')} />
+              ) : (
+                <div className="h-full bento-card p-8 flex flex-col items-center justify-center text-center">
+                  <h2 className="text-2xl font-black tracking-tight mb-4">Login Required</h2>
+                  <p className="text-gray-400 mb-8">Please login to upload your vibe.</p>
+                  <button
+                    onClick={() => setIsLoginOpen(true)}
+                    className="bg-indigo-vibe text-black rounded-3xl px-8 py-4 font-black uppercase tracking-[0.2em] text-[10px] shadow-xl shadow-indigo-vibe/20 active:scale-95 transition-transform"
+                  >
+                    Login Now
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -298,74 +314,58 @@ export default function App() {
       <AnimatePresence>
         {isLoginOpen && (
           <LoginModal
-            loginStep={loginStep}
-            phoneNumber={phoneNumber}
-            otpCode={otpCode}
+            email={email}
+            password={password}
             errorMessage={loginError}
             onClose={() => {
               setIsLoginOpen(false);
-              setLoginStep('phone');
               setLoginError('');
             }}
-            onPhoneChange={(value) => {
-              setPhoneNumber(value);
+            onEmailChange={(value) => {
+              setEmail(value);
               setLoginError('');
             }}
-            onOtpChange={(value) => {
-              setOtpCode(value);
+            onPasswordChange={(value) => {
+              setPassword(value);
               setLoginError('');
             }}
-            onSendOtp={() => {
-              if (!phoneNumber.trim()) {
-                setLoginError('Please enter your mobile number.');
-                return;
-              }
-              const num = phoneNumber.replace(/\D/g, '');
-              if (num !== '7764051248' && num !== '97986') {
-                setLoginError('No account found for this number.');
-                return;
-              }
-              setLoginStep('otp');
-              setLoginError('');
-            }}
-            onVerifyOtp={async () => {
-              if (!otpCode.trim()) {
-                setLoginError('Please enter the OTP.');
+            onLogin={async (mode) => {
+              if (!email.trim() || !password.trim()) {
+                setLoginError('Please enter both email and password.');
                 return;
               }
 
-              const num = phoneNumber.replace(/\D/g, '');
               let selectedProfile = GUEST_PROFILE;
 
-              if (num === '7764051248' && otpCode.trim() === '72899') {
+              if (email.trim().toLowerCase() === 'kaabikind@gmail.com' && password === 'kaabi4321') {
                 selectedProfile = KAABI_PROFILE;
-              } else if (num === '97986' && otpCode.trim() === '76701') {
+              } else if (email.trim().toLowerCase() === 'aarishnasim@gmail.com' && password === 'aarish420') {
                 selectedProfile = AARISH_PROFILE;
-              } else {
-                setLoginError('Invalid OTP. Please try again.');
-                return;
               }
 
-              const email = `${num}@vibechat.app`;
-              const password = 'password123';
-              
-              let { data, error } = await supabase.auth.signInWithPassword({ email, password });
-              let user = data?.user;
-              
-              if (error || !user) {
-                const { data: signUpData, error: signUpError } = await supabase.auth.signUp({ email, password });
-                if (signUpError) {
-                  setLoginError('Authentication failed: ' + signUpError.message);
+              let user;
+              if (mode === 'signin') {
+                const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+                if (error) {
+                  setLoginError('Authentication failed: ' + error.message);
                   return;
                 }
-                user = signUpData.user;
-                if (user) {
-                  await supabase.from('users').upsert({
-                    id: user.id,
-                    username: selectedProfile.handle,
-                    avatar_url: selectedProfile.avatar
-                  });
+                user = data.user;
+              } else {
+                const { data, error } = await supabase.auth.signUp({ email, password });
+                if (error) {
+                  setLoginError('Sign up failed: ' + error.message);
+                  return;
                 }
+                user = data.user;
+              }
+
+              if (user) {
+                await supabase.from('users').upsert({
+                  id: user.id,
+                  username: selectedProfile.handle,
+                  avatar_url: selectedProfile.avatar
+                });
               }
 
               const finalProfile = { ...selectedProfile, id: user?.id || selectedProfile.id };
@@ -373,8 +373,8 @@ export default function App() {
               setProfile(finalProfile);
               setAuthenticated(true);
               setIsLoginOpen(false);
-              setLoginStep('phone');
-              setOtpCode('');
+              setEmail('');
+              setPassword('');
               setLoginError('');
               localStorage.setItem('vibechatProfile', JSON.stringify(finalProfile));
             }}
@@ -594,22 +594,59 @@ function ProfileView({ profile, authenticated, onLogout }: { profile: Profile; a
   );
 }
 
-function UploadView() {
+function UploadView({ profile, onUploadComplete }: { profile: Profile, onUploadComplete: () => void }) {
   const [isUploading, setIsUploading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [description, setDescription] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       setSelectedFile(file);
-      // Simulate upload
-      setIsUploading(true);
-      setTimeout(() => {
-        setIsUploading(false);
-        setSelectedFile(null);
-        alert('Vibe uploaded successfully!');
-      }, 2000);
+    }
+  };
+
+  const handleUpload = async () => {
+    if (!selectedFile) return;
+
+    setIsUploading(true);
+    try {
+      const fileExt = selectedFile.name.split('.').pop();
+      const fileName = `${Math.random()}.${fileExt}`;
+      const filePath = `${profile.id}/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('videos')
+        .upload(filePath, selectedFile);
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage
+        .from('videos')
+        .getPublicUrl(filePath);
+
+      const { error: dbError } = await supabase
+        .from('videos')
+        .insert({
+          user_id: profile.id,
+          url: urlData.publicUrl,
+          description: description || 'No description provided.',
+          likes: 0,
+          comments: 0,
+          shares: 0
+        });
+
+      if (dbError) throw dbError;
+
+      alert('Vibe uploaded successfully!');
+      onUploadComplete();
+    } catch (error: any) {
+      alert('Error uploading: ' + error.message);
+    } finally {
+      setIsUploading(false);
+      setSelectedFile(null);
+      setDescription('');
     }
   };
 
@@ -623,34 +660,65 @@ function UploadView() {
     >
       <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10" />
 
-      <div className="text-center relative z-10 my-auto py-8">
-        <div className="w-32 h-32 bg-bg-alt rounded-[3rem] flex items-center justify-center mx-auto mb-8 border border-gray-800 shadow-2xl group cursor-pointer hover:border-coral transition-all" onClick={() => fileInputRef.current?.click()}>
-          <Upload className={`w-12 h-12 ${isUploading ? 'text-coral animate-bounce' : 'text-gray-500 group-hover:text-coral transition-colors'}`} />
-        </div>
+      <div className="text-center relative z-10 my-auto py-8 w-full max-w-md">
+        {!selectedFile ? (
+          <>
+            <div className="w-32 h-32 bg-bg-alt rounded-[3rem] flex items-center justify-center mx-auto mb-8 border border-gray-800 shadow-2xl group cursor-pointer hover:border-coral transition-all" onClick={() => fileInputRef.current?.click()}>
+              <Upload className={`w-12 h-12 text-gray-500 group-hover:text-coral transition-colors`} />
+            </div>
 
-        <h2 className="text-4xl font-black tracking-tight mb-4">Upload Your Vibe</h2>
-        <p className="text-gray-400 mb-12 max-w-md mx-auto font-medium">Select a video or image from your gallery to share with the community. Every vibe counts.</p>
+            <h2 className="text-4xl font-black tracking-tight mb-4">Upload Your Vibe</h2>
+            <p className="text-gray-400 mb-12 mx-auto font-medium">Select a video or image from your gallery to share with the community. Every vibe counts.</p>
 
-        <input
-          type="file"
-          ref={fileInputRef}
-          onChange={handleFileSelect}
-          accept="video/*,image/*"
-          className="hidden"
-        />
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileSelect}
+              accept="video/*,image/*"
+              className="hidden"
+            />
 
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          disabled={isUploading}
-          className={`coral-orange-gradient text-white px-12 py-5 rounded-[2rem] font-black uppercase tracking-[0.2em] text-xs shadow-2xl shadow-orange-500/30 active:scale-95 transition-all ${isUploading ? 'opacity-50 grayscale cursor-not-allowed' : 'hover:scale-105'}`}
-        >
-          {isUploading ? 'Transmitting...' : 'Choose Media'}
-        </button>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className={`coral-orange-gradient text-white px-12 py-5 rounded-[2rem] font-black uppercase tracking-[0.2em] text-xs shadow-2xl shadow-orange-500/30 active:scale-95 transition-all hover:scale-105`}
+            >
+              Choose Media
+            </button>
+          </>
+        ) : (
+          <div className="w-full flex flex-col items-center">
+            <h2 className="text-2xl font-black tracking-tight mb-4 text-coral">File Selected</h2>
+            <p className="text-sm text-gray-300 mb-6 font-medium break-all bg-bg-alt px-4 py-2 rounded-xl border border-gray-800">{selectedFile.name}</p>
+            
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Write a catchy description..."
+              className="w-full bg-bg-alt border border-gray-800 rounded-2xl px-5 py-4 text-sm outline-none focus:border-coral transition-colors resize-none mb-8"
+              rows={3}
+              disabled={isUploading}
+            />
 
-        {selectedFile && (
-          <p className="mt-6 text-[10px] font-black uppercase tracking-widest text-indigo-vibe-light">
-            Selected: {selectedFile.name}
-          </p>
+            <div className="flex gap-4 w-full">
+              <button
+                onClick={() => {
+                  setSelectedFile(null);
+                  setDescription('');
+                }}
+                disabled={isUploading}
+                className="flex-1 border border-gray-800 text-gray-300 px-6 py-4 rounded-[2rem] font-black uppercase tracking-[0.15em] text-[10px] active:scale-95 transition-all hover:border-coral disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleUpload}
+                disabled={isUploading}
+                className="flex-[2] coral-orange-gradient text-white px-6 py-4 rounded-[2rem] font-black uppercase tracking-[0.15em] text-[10px] shadow-2xl shadow-orange-500/30 active:scale-95 transition-all hover:scale-105 disabled:opacity-50 disabled:grayscale"
+              >
+                {isUploading ? 'Transmitting...' : 'Upload Now'}
+              </button>
+            </div>
+          </div>
         )}
       </div>
     </motion.div>
@@ -676,19 +744,61 @@ function NavButton({ icon: Icon, active, onClick }: { icon: any, label: string, 
 
 function VideoPlayer({ video }: { video: Video; key?: React.Key }) {
   const [liked, setLiked] = useState(false);
+  const [isMuted, setIsMuted] = useState(true);
+  const [showMuteIndicator, setShowMuteIndicator] = useState(false);
+
+  const toggleMute = () => {
+    setIsMuted(!isMuted);
+    setShowMuteIndicator(true);
+    setTimeout(() => setShowMuteIndicator(false), 800);
+  };
+
+  const isImage = video.url.match(/\.(jpeg|jpg|gif|png|webp)(\?.*)?$/i);
 
   return (
-    <div className="h-full w-full snap-start relative bg-black overflow-hidden">
-      <video
-        src={video.url}
-        className="h-full w-full object-cover"
-        loop
-        playsInline
-        autoPlay
-        muted
-      />
+    <div className="h-full w-full snap-start relative bg-black overflow-hidden flex items-center justify-center">
+      {/* Blurred Background Layer for Option B (Landscape Support) */}
+      {isImage ? (
+        <img src={video.url} className="absolute inset-0 h-full w-full object-cover blur-3xl opacity-40 scale-110" alt="" />
+      ) : (
+        <video src={video.url} className="absolute inset-0 h-full w-full object-cover blur-3xl opacity-40 scale-110" loop playsInline autoPlay muted />
+      )}
+
+      {/* Foreground Content */}
+      {isImage ? (
+        <img src={video.url} className="relative z-0 h-full w-full object-contain" alt="Vibe" />
+      ) : (
+        <video
+          src={video.url}
+          className="relative z-0 h-full w-full object-contain cursor-pointer"
+          loop
+          playsInline
+          autoPlay
+          muted={isMuted}
+          onClick={toggleMute}
+        />
+      )}
+      
+      {/* Floating Mute/Unmute Indicator */}
+      <AnimatePresence>
+        {showMuteIndicator && (
+          <motion.div
+            initial={{ scale: 0.5, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 1.5, opacity: 0 }}
+            className="absolute z-30 w-16 h-16 bg-black/60 backdrop-blur-md rounded-full flex items-center justify-center pointer-events-none"
+          >
+            {isMuted ? (
+              <VolumeX className="w-8 h-8 text-white" />
+            ) : (
+              <Volume2 className="w-8 h-8 text-white" />
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+      
       {/* Overlay Content */}
-      <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/90 w-full h-full" />
+      <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/90 w-full h-full pointer-events-none z-10" />
 
       {/* Interactions Sidebar - Bento Style */}
       <div className="absolute right-4 bottom-6 md:right-6 md:bottom-10 flex flex-col items-center gap-4 md:gap-6 z-20">
@@ -708,6 +818,22 @@ function VideoPlayer({ video }: { video: Video; key?: React.Key }) {
           </div>
           <span className="text-[10px] font-black tracking-widest mt-1 opacity-60 uppercase">{video.comments}</span>
         </div>
+
+        {/* Volume/Audio Toggle Button (Only for Videos) */}
+        {!isImage && (
+          <div className="group flex flex-col items-center gap-1 cursor-pointer" onClick={toggleMute}>
+            <div className="w-11 h-11 md:w-14 md:h-14 bg-white/10 backdrop-blur-xl flex items-center justify-center rounded-2xl border border-white/20 transition-all hover:bg-white/20 active:scale-90">
+              {isMuted ? (
+                <VolumeX className="w-5 h-5 md:w-7 md:h-7 text-white" />
+              ) : (
+                <Volume2 className="w-5 h-5 md:w-7 md:h-7 text-coral" />
+              )}
+            </div>
+            <span className="text-[10px] font-black tracking-widest mt-1 opacity-60 uppercase">
+              {isMuted ? 'Mute' : 'Audio'}
+            </span>
+          </div>
+        )}
 
         <div className="group flex flex-col items-center gap-1 cursor-pointer">
           <div className="w-11 h-11 md:w-14 md:h-14 bg-white/10 backdrop-blur-xl flex items-center justify-center rounded-2xl border border-white/20 transition-all hover:bg-white/20 active:scale-90">
@@ -857,26 +983,24 @@ function ChatWindow({ conversationId, user, onClose, socket }: { conversationId:
 }
 
 function LoginModal({
-  loginStep,
-  phoneNumber,
-  otpCode,
+  email,
+  password,
   errorMessage,
   onClose,
-  onPhoneChange,
-  onOtpChange,
-  onSendOtp,
-  onVerifyOtp,
+  onEmailChange,
+  onPasswordChange,
+  onLogin,
 }: {
-  loginStep: 'phone' | 'otp';
-  phoneNumber: string;
-  otpCode: string;
+  email: string;
+  password: string;
   errorMessage: string;
   onClose: () => void;
-  onPhoneChange: (value: string) => void;
-  onOtpChange: (value: string) => void;
-  onSendOtp: () => void;
-  onVerifyOtp: () => void;
+  onEmailChange: (value: string) => void;
+  onPasswordChange: (value: string) => void;
+  onLogin: (mode: 'signin' | 'signup') => void;
 }) {
+  const [isSignUp, setIsSignUp] = useState(false);
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -893,8 +1017,14 @@ function LoginModal({
       >
         <div className="flex items-start justify-between gap-4 mb-8">
           <div>
-            <h2 className="text-2xl font-black tracking-tight">Login with Mobile</h2>
-            <p className="text-sm text-gray-400 mt-2">Enter your phone and verify with OTP to continue.</p>
+            <h2 className="text-2xl font-black tracking-tight">
+              {isSignUp ? 'Create Account' : 'Login'}
+            </h2>
+            <p className="text-sm text-gray-400 mt-2">
+              {isSignUp
+                ? 'Register with your email and password.'
+                : 'Enter your email and password to continue.'}
+            </p>
           </div>
           <button onClick={onClose} className="text-gray-300 hover:text-white text-xl leading-none">×</button>
         </div>
@@ -904,49 +1034,44 @@ function LoginModal({
             {errorMessage}
           </div>
         )}
-        {loginStep === 'phone' ? (
-          <div className="space-y-5">
-            <label className="block text-[10px] uppercase tracking-[0.3em] text-gray-500">Mobile Number</label>
-            <input
-              value={phoneNumber}
-              onChange={(e) => onPhoneChange(e.target.value)}
-              type="tel"
-              placeholder="+1 234 567 8901"
-              className="w-full bg-bg-alt border border-gray-800 rounded-3xl px-5 py-4 text-white outline-none focus:border-coral transition-all"
-            />
+        
+        <div className="space-y-5">
+          <label className="block text-[10px] uppercase tracking-[0.3em] text-gray-500">Email Address</label>
+          <input
+            value={email}
+            onChange={(e) => onEmailChange(e.target.value)}
+            type="email"
+            placeholder="you@example.com"
+            className="w-full bg-bg-alt border border-gray-800 rounded-3xl px-5 py-4 text-white outline-none focus:border-coral transition-all"
+          />
+          
+          <label className="block text-[10px] uppercase tracking-[0.3em] text-gray-500 mt-4">Password</label>
+          <input
+            value={password}
+            onChange={(e) => onPasswordChange(e.target.value)}
+            type="password"
+            placeholder="••••••••"
+            className="w-full bg-bg-alt border border-gray-800 rounded-3xl px-5 py-4 text-white outline-none focus:border-coral transition-all"
+          />
+
+          <button
+            onClick={() => onLogin(isSignUp ? 'signup' : 'signin')}
+            className="w-full coral-orange-gradient text-white rounded-3xl py-4 font-black uppercase tracking-[0.2em] text-[10px] shadow-xl shadow-orange-500/20 active:scale-95 transition-transform mt-4"
+          >
+            {isSignUp ? 'Sign Up' : 'Login'}
+          </button>
+
+          <div className="text-center mt-6">
             <button
-              onClick={onSendOtp}
-              className="w-full coral-orange-gradient text-white rounded-3xl py-4 font-black uppercase tracking-[0.2em] text-[10px] shadow-xl shadow-orange-500/20 active:scale-95 transition-transform"
+              onClick={() => setIsSignUp(!isSignUp)}
+              className="text-xs text-coral hover:underline font-semibold"
             >
-              Send OTP
+              {isSignUp
+                ? 'Already have an account? Log In'
+                : "Don't have an account? Sign Up"}
             </button>
           </div>
-        ) : (
-          <div className="space-y-5">
-            <div className="text-[11px] text-gray-400 uppercase tracking-[0.2em]">OTP sent to 7764051248</div>
-            <label className="block text-[10px] uppercase tracking-[0.3em] text-gray-500">Enter OTP</label>
-            <input
-              value={otpCode}
-              onChange={(e) => onOtpChange(e.target.value)}
-              type="text"
-              inputMode="numeric"
-              placeholder="123456"
-              className="w-full bg-bg-alt border border-gray-800 rounded-3xl px-5 py-4 text-white outline-none focus:border-coral transition-all"
-            />
-            <button
-              onClick={onVerifyOtp}
-              className="w-full coral-orange-gradient text-white rounded-3xl py-4 font-black uppercase tracking-[0.2em] text-[10px] shadow-xl shadow-orange-500/20 active:scale-95 transition-transform"
-            >
-              Verify OTP
-            </button>
-            <button
-              onClick={onClose}
-              className="w-full border border-gray-800 rounded-3xl py-4 text-gray-300 uppercase tracking-[0.2em] text-[10px] hover:border-indigo-vibe"
-            >
-              Cancel
-            </button>
-          </div>
-        )}
+        </div>
       </motion.div>
     </motion.div>
   );
