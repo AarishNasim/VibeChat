@@ -96,6 +96,7 @@ export default function App() {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [profile, setProfile] = useState<Profile>(GUEST_PROFILE);
+  const [scrollToVideoId, setScrollToVideoId] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
 
   const [isLightMode, setIsLightMode] = useState(() => {
@@ -194,8 +195,20 @@ export default function App() {
     }
   }, [currentView]);
 
+  useEffect(() => {
+    if (currentView === 'home' && scrollToVideoId) {
+      const element = document.getElementById(`video-${scrollToVideoId}`);
+      if (element) {
+        setTimeout(() => {
+          element.scrollIntoView({ behavior: 'auto', block: 'start' });
+          setScrollToVideoId(null);
+        }, 150);
+      }
+    }
+  }, [currentView, scrollToVideoId, videos]);
+
   return (
-    <div className={`relative h-full w-full max-w-6xl mx-auto bg-bg-main text-white overflow-hidden flex flex-col font-sans px-4 pt-4 pb-24 md:px-8 md:pt-4 md:pb-24 ${isLightMode ? 'light' : ''}`}>
+    <div className={`relative h-full w-full max-w-6xl mx-auto bg-bg-main text-white overflow-hidden flex flex-col font-sans px-4 pt-4 pb-20 md:px-8 md:pt-4 md:pb-20 ${isLightMode ? 'light' : ''}`}>
       {/* Header - Bento Style */}
       <header className="flex justify-between items-center mb-8 px-2">
         <div className="flex items-center gap-4">
@@ -341,6 +354,14 @@ export default function App() {
                   localStorage.removeItem('vibechatProfile');
                   setCurrentView('home');
                 }} 
+                onVideoClick={(videoId) => {
+                  setScrollToVideoId(videoId);
+                  setCurrentView('home');
+                }}
+                onEdit={() => {
+                  setIsProfileOpen(true);
+                  setIsEditingProfile(true);
+                }}
               />
             </div>
           )}
@@ -583,7 +604,7 @@ function DiscoverView() {
   );
 }
 
-function ProfileView({ profile, authenticated, videos, onLogout, onVideoClick }: { profile: Profile; authenticated: boolean; videos: any[]; onLogout: () => void; onVideoClick: (id: string) => void }) {
+function ProfileView({ profile, authenticated, videos, onLogout, onVideoClick, onEdit }: { profile: Profile; authenticated: boolean; videos: any[]; onLogout: () => void; onVideoClick: (id: string) => void; onEdit: () => void }) {
   if (!authenticated) {
     return (
       <div className="h-full flex flex-col items-center justify-center text-center p-8">
@@ -607,49 +628,49 @@ function ProfileView({ profile, authenticated, videos, onLogout, onVideoClick }:
       exit={{ scale: 1.05, opacity: 0 }}
       className="h-full overflow-y-auto no-scrollbar"
     >
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-6 min-h-full pb-48">
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-6 min-h-full pb-24">
         {/* Profile Card */}
-        <div className="md:col-span-4 bento-card p-8 flex flex-col items-center h-fit">
-          <div className="relative mb-8">
-            <div className="w-40 h-40 rounded-[2.5rem] p-1.5 bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 shadow-2xl shadow-indigo-500/20">
-              <div className="w-full h-full rounded-[2.2rem] border-[6px] border-bg-card overflow-hidden bg-bg-card">
+        <div className="md:col-span-4 bento-card p-5 md:p-6 flex flex-col items-center h-fit">
+          <div className="relative mb-5 md:mb-6">
+            <div className="w-32 h-32 md:w-40 md:h-40 rounded-[2rem] md:rounded-[2.5rem] p-1 bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 shadow-xl shadow-indigo-500/15">
+              <div className="w-full h-full rounded-[1.8rem] md:rounded-[2.2rem] border-[4px] md:border-[6px] border-bg-card overflow-hidden bg-bg-card">
                 <img src={profile.avatar} className="w-full h-full object-cover" alt="" />
               </div>
             </div>
-            <div className="absolute -bottom-2 -right-2 w-10 h-10 bg-white text-black rounded-2xl flex items-center justify-center font-black text-xl shadow-xl ring-8 ring-bg-card">
+            <div className="absolute -bottom-1 -right-1 w-8 h-8 md:w-10 md:h-10 bg-white text-black rounded-xl md:rounded-2xl flex items-center justify-center font-black text-lg md:text-xl shadow-lg ring-4 md:ring-8 ring-bg-card cursor-pointer hover:scale-105 active:scale-95 transition-transform" onClick={onEdit}>
               +
             </div>
           </div>
 
-          <h2 className="text-3xl font-black tracking-tight mb-2">{profile.name}</h2>
-          <p className="text-coral font-black text-sm mb-10 tracking-widest uppercase">{profile.handle}</p>
+          <h2 className="text-2xl md:text-3xl font-black tracking-tight mb-1">{profile.name}</h2>
+          <p className="text-coral font-black text-xs md:text-sm mb-6 md:mb-8 tracking-widest uppercase">{profile.handle}</p>
 
-          <div className="w-full grid grid-cols-3 gap-4 mb-10 text-center">
-            <div className="bg-bg-alt/50 p-4 rounded-3xl border border-gray-800">
-              <p className="text-xl font-black leading-none">{profile.following}</p>
-              <p className="text-[8px] text-gray-500 font-bold uppercase tracking-widest mt-2">Following</p>
+          <div className="w-full grid grid-cols-3 gap-3 md:gap-4 mb-6 md:mb-8 text-center">
+            <div className="bg-bg-alt/50 p-3 md:p-4 rounded-2xl md:rounded-3xl border border-gray-800">
+              <p className="text-lg md:text-xl font-black leading-none">{profile.following}</p>
+              <p className="text-[7px] md:text-[8px] text-gray-500 font-bold uppercase tracking-widest mt-1.5 md:mt-2">Following</p>
             </div>
-            <div className="bg-bg-alt/50 p-4 rounded-3xl border border-gray-800">
-              <p className="text-xl font-black leading-none">{profile.followers}</p>
-              <p className="text-[8px] text-gray-500 font-bold uppercase tracking-widest mt-2">Followers</p>
+            <div className="bg-bg-alt/50 p-3 md:p-4 rounded-2xl md:rounded-3xl border border-gray-800">
+              <p className="text-lg md:text-xl font-black leading-none">{profile.followers}</p>
+              <p className="text-[7px] md:text-[8px] text-gray-500 font-bold uppercase tracking-widest mt-1.5 md:mt-2">Followers</p>
             </div>
-            <div className="bg-bg-alt/50 p-4 rounded-3xl border border-gray-800">
-              <p className="text-xl font-black leading-none">{myVibes.length}</p>
-              <p className="text-[8px] text-gray-500 font-bold uppercase tracking-widest mt-2">Posts</p>
+            <div className="bg-bg-alt/50 p-3 md:p-4 rounded-2xl md:rounded-3xl border border-gray-800">
+              <p className="text-lg md:text-xl font-black leading-none">{myVibes.length}</p>
+              <p className="text-[7px] md:text-[8px] text-gray-500 font-bold uppercase tracking-widest mt-1.5 md:mt-2">Posts</p>
             </div>
           </div>
 
-          <div className="w-full text-center mb-8 px-4">
-            <p className="text-sm leading-relaxed text-gray-400 font-medium">{profile.bio}</p>
+          <div className="w-full text-center mb-6 px-2">
+            <p className="text-xs md:text-sm leading-relaxed text-gray-400 font-medium">{profile.bio || "No bio added yet."}</p>
           </div>
 
-          <button className="w-full bg-white text-black py-5 rounded-[2rem] font-black text-xs uppercase tracking-[0.2em] active:scale-95 transition-transform mb-4 shadow-xl shadow-white/5">
+          <button onClick={onEdit} className="w-full bg-white text-black py-4 md:py-5 rounded-[2rem] font-black text-[10px] md:text-xs uppercase tracking-[0.2em] active:scale-95 transition-transform mb-3 md:mb-4 shadow-xl shadow-white/5 cursor-pointer">
             Edit Profile
           </button>
 
           <button
             onClick={onLogout}
-            className="w-full bg-bg-alt border border-red-500/30 text-red-400 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-red-500/10 transition-colors"
+            className="w-full bg-bg-alt border border-red-500/30 text-red-400 py-3 md:py-4 rounded-2xl font-black text-[9px] md:text-[10px] uppercase tracking-widest hover:bg-red-500/10 transition-colors cursor-pointer"
           >
             Logout session
           </button>
@@ -915,6 +936,7 @@ function VideoPlayer({ video }: { video: Video; key?: React.Key }) {
   return (
     <div
       ref={containerRef}
+      id={`video-${video.id}`}
       className="h-full w-full snap-start relative bg-black overflow-hidden flex items-center justify-center"
     >
       {/* Blurred Background Layer for Option B (Landscape Support) */}

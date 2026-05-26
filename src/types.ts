@@ -30,6 +30,7 @@ export interface Conversation {
 }
 
 export interface Profile {
+  id?: string;
   name: string;
   handle: string;
   avatar: string;
