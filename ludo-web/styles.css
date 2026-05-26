@@ -1,0 +1,143 @@
+:root {
+    --color-red: #d32f2f;
+    --color-blue: #1976d2;
+    --color-green: #388e3c;
+    --color-yellow: #fbc02d;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    font-family: 'Outfit', sans-serif;
+}
+
+body {
+    background: radial-gradient(circle at center, #1c2541 0%, #0b132b 100%);
+    color: white;
+    overflow: hidden; /* No scrollbars for a 3D canvas */
+    width: 100vw;
+    height: 100vh;
+}
+
+/* Starry space effect */
+body::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background-image: 
+        radial-gradient(2px 2px at 20px 30px, #eee, rgba(0,0,0,0)),
+        radial-gradient(2px 2px at 140px 70px, #fff, rgba(0,0,0,0)),
+        radial-gradient(1px 1px at 50px 160px, #ddd, rgba(0,0,0,0)),
+        radial-gradient(2px 2px at 190px 40px, #fff, rgba(0,0,0,0)),
+        radial-gradient(2px 2px at 130px 180px, #fff, rgba(0,0,0,0));
+    background-repeat: repeat;
+    background-size: 250px 250px;
+    z-index: -1;
+    opacity: 0.5;
+}
+
+#webgl-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+}
+
+#ui-layer {
+    position: absolute;
+    bottom: 2rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    pointer-events: none; /* Let clicks pass through to canvas where needed */
+    width: 800px; /* Same as old board size */
+    display: flex;
+    justify-content: center;
+}
+
+/* =========================================
+   BOTTOM UI (Indicators & Dice)
+   ========================================= */
+.bottom-ui-panel {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+    position: relative;
+    height: 100px;
+    pointer-events: auto; /* Enable clicks on UI */
+}
+
+.indicators-container {
+    display: flex;
+    gap: 1.5rem;
+    padding: 10px 20px;
+}
+.indicator {
+    width: 35px;
+    height: 35px;
+    border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.4);
+    box-shadow: inset 0 -4px 8px rgba(0,0,0,0.6), inset 0 4px 8px rgba(255,255,255,0.6);
+    opacity: 0.3;
+    transition: all 0.3s ease;
+}
+.indicator.red { background: radial-gradient(circle at 30% 30%, #ff8a80, var(--color-red)); }
+.indicator.green { background: radial-gradient(circle at 30% 30%, #b9f6ca, var(--color-green)); }
+.indicator.yellow { background: radial-gradient(circle at 30% 30%, #ffff8d, var(--color-yellow)); }
+.indicator.blue { background: radial-gradient(circle at 30% 30%, #82b1ff, var(--color-blue)); }
+
+.indicator.active { opacity: 1; border-color: rgba(255,255,255,0.9); animation: blinkIndicator 1s infinite alternate; }
+@keyframes blinkIndicator {
+    0% { box-shadow: 0 0 5px currentColor, inset 0 -4px 8px rgba(0,0,0,0.6), inset 0 4px 8px rgba(255,255,255,0.6); transform: scale(1); }
+    100% { box-shadow: 0 0 25px currentColor, inset 0 -4px 8px rgba(0,0,0,0.6), inset 0 4px 8px rgba(255,255,255,0.6); transform: scale(1.15); }
+}
+
+/* Glass Box Dice */
+.dice-wrapper { position: absolute; right: 0; bottom: -20px; }
+.glass-box {
+    padding: 25px;
+    border-radius: 15px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    box-shadow: 0 15px 25px rgba(0,0,0,0.5), inset 0 0 15px rgba(255,255,255,0.2), inset 0 0 30px rgba(255,255,255,0.1);
+    backdrop-filter: blur(10px);
+}
+.dice-container { perspective: 1000px; cursor: pointer; }
+.dice { width: 80px; height: 80px; position: relative; transform-style: preserve-3d; transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+.face {
+    position: absolute; width: 100%; height: 100%; background: #fff;
+    border: 1px solid #ddd; border-radius: 10px; display: flex; padding: 10px; box-shadow: inset 0 0 15px rgba(0,0,0,0.1);
+}
+.front { transform: rotateY(0deg) translateZ(40px); justify-content: center; align-items: center; }
+.back { transform: rotateY(180deg) translateZ(40px); justify-content: space-between; }
+.right { transform: rotateY(90deg) translateZ(40px); position: relative; }
+.left { transform: rotateY(-90deg) translateZ(40px); position: relative; }
+.top { transform: rotateX(90deg) translateZ(40px); position: relative; }
+.bottom { transform: rotateX(-90deg) translateZ(40px); justify-content: space-between; }
+.dot { display: block; width: 14px; height: 14px; border-radius: 50%; background: #333; box-shadow: inset 0 2px 4px rgba(0,0,0,0.6); }
+.dot-col { display: flex; flex-direction: column; justify-content: space-between; }
+.center { margin: auto; }
+.top-left { position: absolute; top: 12px; left: 12px; }
+.top-right { position: absolute; top: 12px; right: 12px; }
+.bottom-left { position: absolute; bottom: 12px; left: 12px; }
+.bottom-right { position: absolute; bottom: 12px; right: 12px; }
+.center-dot { align-self: center; }
+.bottom .dot-col:nth-child(2) { align-items: center; justify-content: center; }
+
+.dice.show-1 { transform: rotateY(0deg); }
+.dice.show-6 { transform: rotateY(180deg); }
+.dice.show-3 { transform: rotateY(-90deg); }
+.dice.show-4 { transform: rotateY(90deg); }
+.dice.show-2 { transform: rotateX(-90deg); }
+.dice.show-5 { transform: rotateX(90deg); }
+.dice.rolling { animation: spinDice 0.4s linear infinite; }
+@keyframes spinDice {
+    0% { transform: rotateX(0deg) rotateY(0deg) rotateZ(0deg); }
+    100% { transform: rotateX(360deg) rotateY(720deg) rotateZ(360deg); }
+}
+
+.fireworks-canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 100; }

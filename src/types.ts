@@ -11,6 +11,17 @@ export interface Video {
   shares: number;
 }
 
+export interface Comment {
+  id: string;
+  video_id: string;
+  user_id: string;
+  text: string;
+  created_at: string;
+  user?: {
+    username: string;
+    avatar_url: string;
+  };
+}
 export interface Message {
   id: string;
   senderId: string;

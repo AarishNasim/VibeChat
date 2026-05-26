@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { motion, AnimatePresence } from 'motion/react';
 import { Home, Search, MessageCircle, User, Heart, MessageSquare, Share2, Music2, Sparkles, Upload, Volume2, VolumeX, Play, Pause, Sun, Moon } from 'lucide-react';
-import { AppView, Video, Conversation, Message, Profile } from './types.ts';
+import { AppView, Video, Conversation, Message, Profile, Comment } from './types.ts';
 import { supabase } from './lib/supabase';
 
 const GUEST_PROFILE: Profile = {
@@ -81,12 +81,180 @@ const FILTERS = [
   { id: 'grayscale', name: 'Noir', class: 'grayscale brightness-110' },
   { id: 'invert', name: 'Cyber', class: 'invert hue-rotate-180' },
   { id: 'blue', name: 'Ocean', class: 'hue-rotate-90 saturate-150' },
-];
+];function CommentModal({ 
+  video, 
+  onClose,
+  profile,
+  authenticated
+}: { 
+  video: Video; 
+  onClose: () => void;
+  profile: Profile;
+  authenticated: boolean;
+}) {
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [text, setText] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchComments();
+  }, [video.id]);
+
+  const fetchComments = async () => {
+    const { data, error } = await supabase
+      .from('comments')
+      .select('*, user:users(username, avatar_url)')
+      .eq('video_id', video.id)
+      .order('created_at', { ascending: false });
+    if (!error && data) {
+      setComments(data as any);
+    }
+    setLoading(false);
+  };
+
+  const postComment = async () => {
+    if (!text.trim() || !authenticated) return;
+    const { error } = await supabase.from('comments').insert({
+      video_id: video.id,
+      user_id: profile.id,
+      text: text.trim()
+    });
+    if (!error) {
+      setText('');
+      fetchComments();
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex flex-col justify-end">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm cursor-pointer" onClick={onClose} />
+      <motion.div 
+        initial={{ y: '100%' }}
+        animate={{ y: 0 }}
+        exit={{ y: '100%' }}
+        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+        className="relative bg-bg-card border-t border-gray-800 rounded-t-3xl h-[70vh] flex flex-col shadow-2xl shadow-black"
+      >
+        <div className="flex justify-center p-3 cursor-pointer" onClick={onClose}>
+          <div className="w-12 h-1.5 bg-gray-700 rounded-full" />
+        </div>
+        <div className="text-center pb-4 border-b border-gray-800 font-black text-lg tracking-tight">
+          Comments
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar">
+          {loading ? (
+            <div className="text-center text-gray-500 font-bold mt-10">Loading comments...</div>
+          ) : comments.length === 0 ? (
+            <div className="text-center text-gray-500 font-bold mt-10">No comments yet. Be the first!</div>
+          ) : (
+            comments.map(c => (
+              <div key={c.id} className="flex gap-3 animate-fade-in">
+                <img src={c.user?.avatar_url || 'https://via.placeholder.com/40'} className="w-9 h-9 rounded-full bg-gray-800 object-cover" />
+                <div className="flex-1">
+                  <div className="text-xs text-gray-400 font-bold mb-0.5">@{c.user?.username}</div>
+                  <div className="text-sm text-gray-200">{c.text}</div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+        
+        {authenticated ? (
+          <div className="p-4 border-t border-gray-800 bg-bg-card pb-safe">
+            <div className="flex gap-4 mb-3 px-1 text-2xl justify-start">
+              {['🔥', '❤️', '😂', '😍', '👏'].map(emoji => (
+                <button key={emoji} onClick={() => setText(t => t + emoji)} className="hover:scale-110 active:scale-95 transition-transform">
+                  {emoji}
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <input 
+                type="text" 
+                value={text}
+                onChange={e => setText(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && postComment()}
+                placeholder="Add a comment..."
+                className="flex-1 bg-bg-alt rounded-full px-5 py-3 text-sm border border-gray-800 focus:border-coral outline-none transition-colors"
+              />
+              <button 
+                onClick={postComment} 
+                disabled={!text.trim()} 
+                className="text-black bg-white rounded-full px-6 font-black text-xs uppercase tracking-widest disabled:opacity-50 active:scale-95 transition-all"
+              >
+                Post
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="p-6 border-t border-gray-800 text-center bg-bg-card pb-safe flex flex-col items-center">
+            <div className="text-gray-500 font-bold mb-3 text-sm">Please login to join the conversation.</div>
+          </div>
+        )}
+      </motion.div>
+    </div>
+  );
+}
+
+function SearchModal({ 
+  profile, 
+  onClose, 
+  onSelectUser 
+}: { 
+  profile: Profile, 
+  onClose: () => void, 
+  onSelectUser: (user: any) => void 
+}) {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (query.length > 1) {
+      supabase.from('users')
+        .select('*')
+        .ilike('username', `%${query}%`)
+        .neq('id', profile.id)
+        .limit(10)
+        .then(({ data }) => setResults(data || []));
+    } else {
+      setResults([]);
+    }
+  }, [query]);
+
+  return (
+    <div className="absolute inset-0 z-50 flex flex-col bg-bg-card p-6 font-sans">
+      <div className="flex gap-3 mb-6 items-center">
+        <button onClick={onClose} className="w-10 h-10 flex items-center justify-center rounded-xl bg-bg-alt border border-gray-800 rotate-180">➜</button>
+        <input 
+          autoFocus
+          value={query} 
+          onChange={e => setQuery(e.target.value)} 
+          placeholder="Search @username..." 
+          className="flex-1 bg-bg-alt border border-gray-800 rounded-2xl px-4 py-3 outline-none focus:border-coral transition-colors" 
+        />
+      </div>
+      <div className="flex-1 overflow-y-auto space-y-3 no-scrollbar">
+        {results.map(u => (
+          <div key={u.id} onClick={() => onSelectUser(u)} className="flex items-center gap-4 p-4 bg-bg-alt rounded-2xl cursor-pointer hover:border-coral/50 border border-transparent transition-colors">
+            <img src={u.avatar_url || 'https://via.placeholder.com/40'} className="w-12 h-12 rounded-full object-cover border border-gray-800" />
+            <div className="font-bold text-lg">@{u.username}</div>
+          </div>
+        ))}
+        {query.length > 1 && results.length === 0 && (
+          <div className="text-center text-gray-500 mt-10">No users found.</div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function App() {
   const [currentView, setCurrentView] = useState<AppView>('home');
   const [videos, setVideos] = useState<Video[]>(MOCK_VIDEOS);
-  const [activeChat, setActiveChat] = useState<string | null>(null);
+  const [activeChat, setActiveChat] = useState<{room: string, user: any} | null>(null);
+  const [activeCommentVideo, setActiveCommentVideo] = useState<Video | null>(null);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [conversations, setConversations] = useState<any[]>([]);
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -207,6 +375,33 @@ export default function App() {
     }
   }, [currentView, scrollToVideoId, videos]);
 
+  useEffect(() => {
+    if (authenticated && profile.id && currentView === 'chat') {
+      // Fetch messages for inbox
+      supabase.from('messages')
+        .select('*, sender:users!messages_sender_id_fkey(id, username, avatar_url), receiver:users!messages_receiver_id_fkey(id, username, avatar_url)')
+        .or(`sender_id.eq.${profile.id},receiver_id.eq.${profile.id}`)
+        .order('created_at', { ascending: false })
+        .then(({ data, error }) => {
+          if (!error && data) {
+            const convosMap = new Map();
+            data.forEach(msg => {
+              const otherUser = msg.sender_id === profile.id ? msg.receiver : msg.sender;
+              if (!otherUser) return;
+              if (!convosMap.has(otherUser.id)) {
+                convosMap.set(otherUser.id, {
+                  user: { id: otherUser.id, name: otherUser.username, avatar: otherUser.avatar_url || 'https://via.placeholder.com/40' },
+                  lastMessage: msg.text,
+                  room: [profile.id, otherUser.id].sort().join('-')
+                });
+              }
+            });
+            setConversations(Array.from(convosMap.values()));
+          }
+        });
+    }
+  }, [authenticated, profile.id, currentView]);
+
   return (
     <div className={`relative h-full w-full max-w-6xl mx-auto bg-bg-main text-white overflow-hidden flex flex-col font-sans px-4 pt-4 pb-20 md:px-8 md:pt-4 md:pb-20 ${isLightMode ? 'light' : ''}`}>
       {/* Header - Bento Style */}
@@ -264,11 +459,11 @@ export default function App() {
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 1.02 }}
-              className="md:col-span-12 h-full w-[calc(100%+2rem)] -mx-4 md:mx-auto md:w-full md:max-w-[420px] rounded-none md:rounded-3xl border-none md:border border-gray-800 overflow-hidden relative shadow-2xl shadow-indigo-vibe/5 bg-black"
+              className="md:col-span-12 h-full min-h-0 w-[calc(100%+2rem)] -mx-4 md:mx-auto md:w-full md:max-w-[420px] rounded-none md:rounded-3xl border-none md:border border-gray-800 overflow-hidden relative shadow-2xl shadow-indigo-vibe/5 bg-black"
             >
               <div className="h-full overflow-y-scroll snap-y-mandatory no-scrollbar">
                 {videos.map((video) => (
-                  <VideoPlayer key={video.id} video={video} />
+                  <VideoPlayer key={video.id} video={video} onOpenComments={setActiveCommentVideo} />
                 ))}
               </div>
             </motion.div>
@@ -280,51 +475,71 @@ export default function App() {
               initial={{ x: 50, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
               exit={{ x: 50, opacity: 0 }}
-              className={`md:block md:col-span-12 lg:col-span-6 lg:col-start-4 h-full bento-card p-6 flex flex-col`}
+              className={`md:block md:col-span-12 lg:col-span-6 lg:col-start-4 h-full min-h-0 bento-card p-6 flex flex-col relative overflow-hidden`}
             >
               <div className="flex justify-between items-center mb-6">
                 <h1 className="text-xl font-bold tracking-tight">Messages</h1>
-                <span className="bg-coral text-[10px] px-2 py-0.5 rounded-full font-black uppercase">4 New</span>
+                {authenticated && (
+                  <button onClick={() => setIsSearchOpen(true)} className="bg-bg-alt border border-gray-800 w-8 h-8 flex items-center justify-center rounded-xl text-white font-bold hover:border-coral transition-colors active:scale-90">+</button>
+                )}
               </div>
-              <div className="space-y-4 overflow-y-auto no-scrollbar flex-1 pb-4">
-                {MOCK_CHATS.map((chat) => (
-                  <motion.div
-                    whileHover={{ x: 4 }}
-                    whileTap={{ scale: 0.98 }}
-                    key={chat.id}
-                    className="flex items-center gap-3 p-3 rounded-2xl bg-bg-alt border border-gray-800/50 hover:border-coral/30 transition-all cursor-pointer"
-                    onClick={() => setActiveChat(chat.id)}
-                  >
-                    <div className="relative">
-                      <img src={chat.user.avatar} className="w-12 h-12 rounded-full bg-indigo-vibe/10 border-2 border-white/5" alt="" />
-                      <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-bg-card rounded-full" />
+              
+              {!authenticated ? (
+                <div className="flex-1 flex flex-col items-center justify-center text-center">
+                  <p className="text-gray-500 mb-4">Login to chat with others.</p>
+                </div>
+              ) : (
+                <div className="space-y-4 overflow-y-auto no-scrollbar flex-1 pb-4">
+                  {conversations.length === 0 && (
+                    <div className="text-center text-gray-500 mt-10 text-sm font-bold">
+                      No conversations yet.<br/>Click + to find users.
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-bold text-sm">{chat.user.name}</h3>
-                      <p className="text-xs text-gray-500 truncate font-medium">{chat.lastMessage}</p>
-                    </div>
-                    {chat.unread && <div className="w-2 h-2 bg-coral rounded-full shadow-lg shadow-coral/50" />}
-                  </motion.div>
-                ))}
-              </div>
-              <div className="mt-4 flex gap-2">
-                <input
-                  type="text"
-                  placeholder="Start chat..."
-                  className="w-full bg-bg-alt border border-gray-800 rounded-xl px-4 py-2.5 text-xs outline-none focus:border-coral transition-colors"
-                />
-              </div>
+                  )}
+                  {conversations.map((chat) => (
+                    <motion.div
+                      whileHover={{ x: 4 }}
+                      whileTap={{ scale: 0.98 }}
+                      key={chat.room}
+                      className="flex items-center gap-3 p-3 rounded-2xl bg-bg-alt border border-gray-800/50 hover:border-coral/30 transition-all cursor-pointer"
+                      onClick={() => setActiveChat({ room: chat.room, user: chat.user })}
+                    >
+                      <div className="relative">
+                        <img src={chat.user.avatar} className="w-12 h-12 rounded-full object-cover bg-indigo-vibe/10 border-2 border-white/5" alt="" />
+                        <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-bg-card rounded-full" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-bold text-sm">@{chat.user.name}</h3>
+                        <p className="text-xs text-gray-500 truncate font-medium">{chat.lastMessage}</p>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
+
+              <AnimatePresence>
+                {isSearchOpen && (
+                  <SearchModal 
+                    profile={profile} 
+                    onClose={() => setIsSearchOpen(false)} 
+                    onSelectUser={(u) => {
+                      setIsSearchOpen(false);
+                      const room = [profile.id, u.id].sort().join('-');
+                      setActiveChat({ room, user: { id: u.id, name: u.username, avatar: u.avatar_url || 'https://via.placeholder.com/40' } });
+                    }} 
+                  />
+                )}
+              </AnimatePresence>
             </motion.div>
           )}
 
           {currentView === 'discover' && (
-            <div className="md:col-span-12 h-full">
+            <div className="md:col-span-12 h-full min-h-0">
               <DiscoverView />
             </div>
           )}
 
           {currentView === 'upload' && (
-            <div className="md:col-span-12 h-full">
+            <div className="md:col-span-12 h-full min-h-0">
               {authenticated ? (
                 <UploadView profile={profile} onUploadComplete={() => setCurrentView('home')} />
               ) : (
@@ -343,7 +558,7 @@ export default function App() {
           )}
 
           {currentView === 'profile' && (
-            <div className="md:col-span-12 h-full">
+            <div className="md:col-span-12 h-full min-h-0">
               <ProfileView 
                 profile={profile} 
                 authenticated={authenticated} 
@@ -372,10 +587,23 @@ export default function App() {
       <AnimatePresence>
         {activeChat && (
           <ChatWindow
-            conversationId={activeChat}
-            user={MOCK_CHATS.find(c => c.id === activeChat)?.user || MOCK_CHATS[0].user}
+            conversationId={activeChat.room}
+            user={activeChat.user}
+            profile={profile}
             onClose={() => setActiveChat(null)}
             socket={socketRef.current!}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Comment Modal */}
+      <AnimatePresence>
+        {activeCommentVideo && (
+          <CommentModal 
+            video={activeCommentVideo}
+            onClose={() => setActiveCommentVideo(null)}
+            profile={profile}
+            authenticated={authenticated}
           />
         )}
       </AnimatePresence>
@@ -620,6 +848,8 @@ function ProfileView({ profile, authenticated, videos, onLogout, onVideoClick, o
     (v) => v.user_id === profile.id || v.user?.name === profile.handle
   );
 
+  const totalLikes = myVibes.reduce((sum, v) => sum + (v.likes || 0), 0);
+
   return (
     <motion.div
       key="profile"
@@ -645,7 +875,7 @@ function ProfileView({ profile, authenticated, videos, onLogout, onVideoClick, o
           <h2 className="text-2xl md:text-3xl font-black tracking-tight mb-1">{profile.name}</h2>
           <p className="text-coral font-black text-xs md:text-sm mb-6 md:mb-8 tracking-widest uppercase">{profile.handle}</p>
 
-          <div className="w-full grid grid-cols-3 gap-3 md:gap-4 mb-6 md:mb-8 text-center">
+          <div className="w-full grid grid-cols-2 gap-3 md:gap-4 mb-6 md:mb-8 text-center">
             <div className="bg-bg-alt/50 p-3 md:p-4 rounded-2xl md:rounded-3xl border border-gray-800">
               <p className="text-lg md:text-xl font-black leading-none">{profile.following}</p>
               <p className="text-[7px] md:text-[8px] text-gray-500 font-bold uppercase tracking-widest mt-1.5 md:mt-2">Following</p>
@@ -657,6 +887,10 @@ function ProfileView({ profile, authenticated, videos, onLogout, onVideoClick, o
             <div className="bg-bg-alt/50 p-3 md:p-4 rounded-2xl md:rounded-3xl border border-gray-800">
               <p className="text-lg md:text-xl font-black leading-none">{myVibes.length}</p>
               <p className="text-[7px] md:text-[8px] text-gray-500 font-bold uppercase tracking-widest mt-1.5 md:mt-2">Posts</p>
+            </div>
+            <div className="bg-bg-alt/50 p-3 md:p-4 rounded-2xl md:rounded-3xl border border-coral/30">
+              <p className="text-lg md:text-xl font-black leading-none text-coral">{totalLikes}</p>
+              <p className="text-[7px] md:text-[8px] text-coral/80 font-bold uppercase tracking-widest mt-1.5 md:mt-2">Total Likes</p>
             </div>
           </div>
 
@@ -862,7 +1096,7 @@ function NavButton({ icon: Icon, active, onClick }: { icon: any, label: string, 
   );
 }
 
-function VideoPlayer({ video }: { video: Video; key?: React.Key }) {
+function VideoPlayer({ video, onOpenComments }: { video: Video; onOpenComments?: (video: Video) => void; key?: React.Key }) {
   const [liked, setLiked] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
   const [showMuteIndicator, setShowMuteIndicator] = useState(false);
@@ -910,6 +1144,16 @@ function VideoPlayer({ video }: { video: Video; key?: React.Key }) {
     setIsMuted(!isMuted);
     setShowMuteIndicator(true);
     setTimeout(() => setShowMuteIndicator(false), 800);
+  };
+
+  const handleLike = async () => {
+    const newLiked = !liked;
+    setLiked(newLiked);
+    try {
+      await supabase.rpc('update_likes', { p_video_id: video.id, p_increment: newLiked ? 1 : -1 });
+    } catch (err) {
+      console.error("Failed to update likes:", err);
+    }
   };
 
   const togglePlayPause = () => {
@@ -1017,7 +1261,7 @@ function VideoPlayer({ video }: { video: Video; key?: React.Key }) {
 
       {/* Interactions Sidebar - Sleek Instagram Style (Transparent, Drop Shadow, Smaller) */}
       <div className="absolute right-4 bottom-6 md:right-6 md:bottom-10 flex flex-col items-center gap-4.5 md:gap-6 z-20">
-        <div className="group flex flex-col items-center gap-0.5 cursor-pointer" onClick={() => setLiked(!liked)}>
+        <div className="group flex flex-col items-center gap-0.5 cursor-pointer" onClick={handleLike}>
           <motion.div
             animate={{ scale: liked ? [1, 1.2, 1] : 1 }}
             className="w-8 h-8 md:w-10 md:h-10 flex items-center justify-center transition-all active:scale-90 hover:scale-110 drop-shadow-[0_2px_8px_rgba(0,0,0,0.6)]"
@@ -1027,7 +1271,7 @@ function VideoPlayer({ video }: { video: Video; key?: React.Key }) {
           <span className="text-[10px] md:text-[11px] font-black tracking-wider text-white drop-shadow-[0_1.5px_4px_rgba(0,0,0,0.7)] mt-0.5">{video.likes + (liked ? 1 : 0)}</span>
         </div>
 
-        <div className="group flex flex-col items-center gap-0.5 cursor-pointer">
+        <div className="group flex flex-col items-center gap-0.5 cursor-pointer" onClick={() => onOpenComments?.(video)}>
           <div className="w-8 h-8 md:w-10 md:h-10 flex items-center justify-center transition-all active:scale-90 hover:scale-110 drop-shadow-[0_2px_8px_rgba(0,0,0,0.6)]">
             <MessageSquare className="w-6 h-6 md:w-7.5 md:h-7.5 text-white" />
           </div>
@@ -1098,22 +1342,44 @@ function VideoPlayer({ video }: { video: Video; key?: React.Key }) {
   );
 }
 
-function ChatWindow({ conversationId, user, onClose, socket }: { conversationId: string, user: any, onClose: () => void, socket: Socket }) {
+function ChatWindow({ conversationId, user, profile, onClose, socket }: { conversationId: string, user: any, profile: Profile, onClose: () => void, socket: Socket }) {
   const [inputText, setInputText] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    // Fetch historical messages from Supabase
+    const fetchHistory = async () => {
+      const { data, error } = await supabase
+        .from('messages')
+        .select('*')
+        .or(`and(sender_id.eq.${profile.id},receiver_id.eq.${user.id}),and(sender_id.eq.${user.id},receiver_id.eq.${profile.id})`)
+        .order('created_at', { ascending: true });
+      if (!error && data) {
+        setMessages(data.map(m => ({
+          id: m.id,
+          senderId: m.sender_id,
+          senderName: m.sender_id === profile.id ? 'me' : user.name,
+          text: m.text,
+          timestamp: new Date(m.created_at).getTime()
+        })));
+      }
+    };
+    if (profile.id) fetchHistory();
+
     socket.emit('join-room', conversationId);
 
     socket.on('new-message', (data: Message) => {
-      setMessages(prev => [...prev, data]);
+      setMessages(prev => {
+        if (prev.find(m => m.id === data.id)) return prev;
+        return [...prev, data];
+      });
     });
 
     return () => {
       socket.off('new-message');
     };
-  }, [conversationId, socket]);
+  }, [conversationId, socket, profile.id, user.id]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -1121,17 +1387,45 @@ function ChatWindow({ conversationId, user, onClose, socket }: { conversationId:
     }
   }, [messages]);
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!inputText.trim()) return;
+    const text = inputText.trim();
+    setInputText('');
+    
+    // Optimistic UI update
+    const tempId = Math.random().toString(36).substr(2, 9);
     const newMessage = {
       room: conversationId,
-      sender: 'me',
-      text: inputText,
+      senderId: profile.id,
+      senderName: 'me',
+      text,
       timestamp: Date.now(),
-      id: Math.random().toString(36).substr(2, 9)
+      id: tempId
     };
-    socket.emit('send-message', newMessage);
-    setInputText('');
+    setMessages(prev => [...prev, newMessage]);
+
+    // Save to Supabase
+    const { data, error } = await supabase.from('messages').insert({
+      sender_id: profile.id,
+      receiver_id: user.id,
+      text: text
+    }).select().single();
+
+    if (!error && data) {
+      // Emit via socket
+      const finalMessage = {
+        room: conversationId,
+        senderId: profile.id,
+        senderName: profile.handle,
+        text,
+        timestamp: new Date(data.created_at).getTime(),
+        id: data.id
+      };
+      socket.emit('send-message', finalMessage);
+      
+      // Update local message ID to match DB
+      setMessages(prev => prev.map(m => m.id === tempId ? finalMessage : m));
+    }
   };
 
   return (
@@ -1147,11 +1441,11 @@ function ChatWindow({ conversationId, user, onClose, socket }: { conversationId:
           <span className="text-xl rotate-180">➜</span>
         </button>
         <div className="flex flex-col items-center">
-          <h2 className="font-black text-xl tracking-tighter leading-none">{user.name}</h2>
+          <h2 className="font-black text-xl tracking-tighter leading-none">{user.name || user.username}</h2>
           <span className="text-[10px] text-green-500 font-bold uppercase tracking-widest mt-1">Live Connection</span>
         </div>
         <div className="w-12 h-12 rounded-xl border border-gray-800 bg-bg-alt overflow-hidden">
-          <img src={user.avatar} className="w-full h-full" alt="" />
+          <img src={user.avatar || user.avatar_url || 'https://via.placeholder.com/40'} className="w-full h-full object-cover" alt="" />
         </div>
       </div>
 
@@ -1164,12 +1458,12 @@ function ChatWindow({ conversationId, user, onClose, socket }: { conversationId:
         )}
         {messages.map((msg) => (
           <motion.div
-            initial={{ scale: 0.9, opacity: 0, x: msg.sender === 'me' ? 20 : -20 }}
+            initial={{ scale: 0.9, opacity: 0, x: msg.senderId === profile.id ? 20 : -20 }}
             animate={{ scale: 1, opacity: 1, x: 0 }}
             key={msg.id}
-            className={`flex ${msg.sender === 'me' ? 'justify-end' : 'justify-start'}`}
+            className={`flex ${msg.senderId === profile.id ? 'justify-end' : 'justify-start'}`}
           >
-            <div className={`max-w-[85%] p-4 rounded-3xl ${msg.sender === 'me' ? 'coral-orange-gradient text-white rounded-br-none shadow-xl shadow-orange-500/20' : 'bg-bg-alt rounded-bl-none border border-gray-800'}`}>
+            <div className={`max-w-[85%] p-4 rounded-3xl ${msg.senderId === profile.id ? 'coral-orange-gradient text-white rounded-br-none shadow-xl shadow-orange-500/20' : 'bg-bg-alt rounded-bl-none border border-gray-800'}`}>
               <p className="text-[13px] font-bold leading-relaxed tracking-wide">{msg.text}</p>
             </div>
           </motion.div>
@@ -1186,9 +1480,11 @@ function ChatWindow({ conversationId, user, onClose, socket }: { conversationId:
           onKeyPress={(e) => e.key === 'Enter' && handleSend()}
         />
         <motion.button
+          whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
           onClick={handleSend}
-          className="coral-orange-gradient text-white px-8 rounded-2xl flex items-center justify-center font-black text-xs uppercase tracking-widest transition-all hover:shadow-lg hover:shadow-orange-500/20"
+          className="px-8 py-4 bg-white text-black rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-xl shadow-white/5 disabled:opacity-50"
+          disabled={!inputText.trim()}
         >
           Send
         </motion.button>

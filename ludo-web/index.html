@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Premium 3D Ludo - Three.js Engine</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+    <!-- Load Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tween.js/18.6.4/tween.umd.js"></script>
+</head>
+<body>
+    <!-- 3D Canvas Container -->
+    <div id="webgl-container"></div>
+    
+    <!-- UI Overlay -->
+    <div id="ui-layer">
+        <div class="bottom-ui-panel">
+            <!-- Turn Indicators -->
+            <div class="indicators-container">
+                <div class="indicator red" id="indicator-red"></div>
+                <div class="indicator green" id="indicator-green"></div>
+                <div class="indicator yellow" id="indicator-yellow"></div>
+                <div class="indicator blue" id="indicator-blue"></div>
+            </div>
+
+            <!-- 3D CSS Dice Overlay (kept for simplicity of physical rolling) -->
+            <div class="dice-wrapper">
+                <div class="glass-box">
+                    <div class="dice-container" id="dice-container">
+                        <div class="dice" id="dice">
+                            <div class="face front"><span class="dot center"></span></div>
+                            <div class="face back">
+                                <div class="dot-col"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+                                <div class="dot-col"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+                            </div>
+                            <div class="face right">
+                                <span class="dot top-left"></span>
+                                <span class="dot center"></span>
+                                <span class="dot bottom-right"></span>
+                            </div>
+                            <div class="face left">
+                                <span class="dot top-left"></span><span class="dot top-right"></span>
+                                <span class="dot bottom-left"></span><span class="dot bottom-right"></span>
+                            </div>
+                            <div class="face top">
+                                <span class="dot top-left"></span>
+                                <span class="dot bottom-right"></span>
+                            </div>
+                            <div class="face bottom">
+                                <div class="dot-col"><span class="dot"></span><span class="dot center-dot"></span><span class="dot"></span></div>
+                                <div class="dot-col"><span class="dot"></span><span class="dot"></span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!-- Fireworks Overlay -->
+        <canvas id="fireworks-canvas" class="fireworks-canvas"></canvas>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
