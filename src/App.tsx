@@ -366,16 +366,19 @@ export default function App() {
 
         let activeProfile = null;
         if (savedProfile) {
-          activeProfile = JSON.parse(savedProfile);
+          const parsed = JSON.parse(savedProfile);
+          if (parsed.id === session.user.id || parsed.handle === userData.username) {
+            activeProfile = parsed;
+          }
         }
 
         if (userData) {
           const mergedProfile = {
             id: session.user.id,
-            name: activeProfile?.name || userData.username || 'KaaBI',
-            handle: userData.username || activeProfile?.handle || '@KaaBI',
-            avatar: userData.avatar_url || activeProfile?.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=kaabi',
-            bio: userData.bio || activeProfile?.bio || 'Creator bio here.',
+            name: activeProfile?.name || userData.username || session.user.email?.split('@')[0] || 'User',
+            handle: userData.username || activeProfile?.handle || `@${session.user.email?.split('@')[0]}`,
+            avatar: userData.avatar_url || activeProfile?.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${session.user.id}`,
+            bio: userData.bio || activeProfile?.bio || 'Welcome to my profile! Vibing high.',
             posts: activeProfile?.posts || 0,
             followers: activeProfile?.followers || '0',
             following: activeProfile?.following || 0,
@@ -624,7 +627,8 @@ export default function App() {
                 profile={profile} 
                 authenticated={authenticated} 
                 videos={videos}
-                onLogout={() => {
+                onLogout={async () => {
+                  await supabase.auth.signOut();
                   setAuthenticated(false);
                   setProfile(GUEST_PROFILE);
                   localStorage.removeItem('vibechatProfile');
@@ -721,7 +725,12 @@ export default function App() {
                 return;
               }
 
-              let selectedProfile = GUEST_PROFILE;
+              let selectedProfile = {
+                ...GUEST_PROFILE,
+                name: email.split('@')[0],
+                handle: '@' + email.split('@')[0].toLowerCase(),
+                avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email.split('@')[0]}`
+              };
 
               if (email.trim().toLowerCase() === 'kaabikind@gmail.com' && password === 'kaabi4321') {
                 selectedProfile = KAABI_PROFILE;
