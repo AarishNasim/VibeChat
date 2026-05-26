@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { motion, AnimatePresence } from 'motion/react';
-import { Home, Search, MessageCircle, User, Heart, MessageSquare, Share2, Music2, Sparkles, Upload, Volume2, VolumeX, Play, Pause, Sun, Moon } from 'lucide-react';
+import { Home, Search, MessageCircle, User, Heart, MessageSquare, Share2, Music2, Sparkles, Upload, Volume2, VolumeX, Play, Pause, Sun, Moon, Check, CheckCheck } from 'lucide-react';
 import { AppView, Video, Conversation, Message, Profile, Comment } from './types.ts';
 import { supabase } from './lib/supabase';
 
@@ -16,27 +16,6 @@ const GUEST_PROFILE: Profile = {
   storyHighlights: ['Login', 'Profile', 'Stories']
 };
 
-const KAABI_PROFILE: Profile = {
-  name: 'KaaBI@420',
-  handle: 'KaaBI@420',
-  avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=kaabi',
-  bio: 'Your KaaBI bro this side,',
-  posts: 0,
-  followers: '0',
-  following: 0,
-  storyHighlights: ['New', 'Music', 'Vibes']
-};
-
-const AARISH_PROFILE: Profile = {
-  name: 'Syed Aarish',
-  handle: '@AARISH0786',
-  avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=aarish',
-  bio: 'Welcome to my profile! Vibing high.  hi, im randi aarish',
-  posts: 128,
-  followers: '24.5K',
-  following: 128,
-  storyHighlights: ['Vibes', 'Life', 'Travel']
-};
 
 // Mock Data
 const MOCK_VIDEOS: Video[] = [
@@ -448,6 +427,10 @@ export default function App() {
         .order('created_at', { ascending: false })
         .then(({ data, error }) => {
           if (!error && data) {
+            const deliveredIds = data.filter(m => m.receiver_id === profile.id && m.status === 'sent').map(m => m.id);
+            if (deliveredIds.length > 0) {
+              supabase.from('messages').update({ status: 'delivered' }).in('id', deliveredIds).then();
+            }
             const convosMap = new Map();
             data.forEach(msg => {
               const otherUser = msg.sender_id === profile.id ? msg.receiver : msg.sender;
@@ -732,11 +715,7 @@ export default function App() {
                 avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email.split('@')[0]}`
               };
 
-              if (email.trim().toLowerCase() === 'kaabikind@gmail.com' && password === 'kaabi4321') {
-                selectedProfile = KAABI_PROFILE;
-              } else if (email.trim().toLowerCase() === 'aarishnasim@gmail.com' && password === 'aarish420') {
-                selectedProfile = AARISH_PROFILE;
-              }
+
 
               let user;
               if (mode === 'signin') {
@@ -1443,8 +1422,17 @@ function ChatWindow({ conversationId, user, profile, onClose, socket }: { conver
           senderId: m.sender_id,
           senderName: m.sender_id === profile.id ? 'me' : user.name,
           text: m.text,
-          timestamp: new Date(m.created_at).getTime()
+          timestamp: new Date(m.created_at).getTime(),
+          status: m.status
         })));
+
+        const unreadIds = data.filter((m: any) => m.receiver_id === profile.id && m.status !== 'seen').map((m: any) => m.id);
+        if (unreadIds.length > 0) {
+          await supabase.from('messages').update({ status: 'seen' }).in('id', unreadIds);
+          unreadIds.forEach((id: string) => {
+            socket.emit('message-status-update', { room: conversationId, messageId: id, status: 'seen' });
+          });
+        }
       }
     };
     if (profile.id) fetchHistory();
@@ -1456,10 +1444,19 @@ function ChatWindow({ conversationId, user, profile, onClose, socket }: { conver
         if (prev.find(m => m.id === data.id)) return prev;
         return [...prev, data];
       });
+      if (data.senderId !== profile.id) {
+        supabase.from('messages').update({ status: 'seen' }).eq('id', data.id).then();
+        socket.emit('message-status-update', { room: conversationId, messageId: data.id, status: 'seen' });
+      }
+    });
+
+    socket.on('message-status-updated', ({ messageId, status }) => {
+      setMessages(prev => prev.map(m => m.id === messageId ? { ...m, status } : m));
     });
 
     return () => {
       socket.off('new-message');
+      socket.off('message-status-updated');
     };
   }, [conversationId, socket, profile.id, user.id]);
 
@@ -1501,7 +1498,8 @@ function ChatWindow({ conversationId, user, profile, onClose, socket }: { conver
         senderName: profile.handle,
         text,
         timestamp: new Date(data.created_at).getTime(),
-        id: data.id
+        id: data.id,
+        status: data.status || 'sent'
       };
       socket.emit('send-message', finalMessage);
       
@@ -1547,6 +1545,14 @@ function ChatWindow({ conversationId, user, profile, onClose, socket }: { conver
           >
             <div className={`max-w-[85%] p-4 rounded-3xl ${msg.senderId === profile.id ? 'coral-orange-gradient text-white rounded-br-none shadow-xl shadow-orange-500/20' : 'bg-bg-alt rounded-bl-none border border-gray-800'}`}>
               <p className="text-[13px] font-bold leading-relaxed tracking-wide">{msg.text}</p>
+              {msg.senderId === profile.id && (
+                <div className="flex justify-end mt-0.5 gap-1 items-center">
+                  <span className="text-[9px] opacity-70 font-bold">{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  {(!msg.status || msg.status === 'sent') && <Check className="w-3 h-3 text-white/70" />}
+                  {msg.status === 'delivered' && <CheckCheck className="w-3 h-3 text-white/70" />}
+                  {msg.status === 'seen' && <CheckCheck className="w-3 h-3 text-blue-200 drop-shadow-[0_0_2px_rgba(59,130,246,0.8)]" />}
+                </div>
+              )}
             </div>
           </motion.div>
         ))}

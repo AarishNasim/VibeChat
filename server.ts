@@ -40,8 +40,13 @@ async function startServer() {
     });
 
     socket.on("send-message", (data) => {
-      // data: { room, sender, text, timestamp }
+      // data: { room, sender, text, timestamp, status }
       io.to(data.room).emit("new-message", data);
+    });
+
+    socket.on("message-status-update", (data) => {
+      // data: { room, messageId, status }
+      io.to(data.room).emit("message-status-updated", data);
     });
 
     socket.on("disconnect", () => {

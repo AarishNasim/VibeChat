@@ -28,6 +28,7 @@ export interface Message {
   senderName: string;
   text: string;
   timestamp: number;
+  status?: 'sent' | 'delivered' | 'seen';
 }
 
 export interface Conversation {
