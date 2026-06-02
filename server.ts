@@ -34,19 +34,41 @@ async function startServer() {
   io.on("connection", (socket) => {
     console.log("A user connected:", socket.id);
 
+    // Global authentication: user joins their own personal room
+    socket.on("authenticate", (userId) => {
+      socket.join(`user-${userId}`);
+      console.log(`User ${userId} authenticated and joined room user-${userId}`);
+    });
+
     socket.on("join-room", (room) => {
       socket.join(room);
-      console.log(`User ${socket.id} joined room: ${room}`);
+      console.log(`User ${socket.id} joined conversation room: ${room}`);
     });
 
     socket.on("send-message", (data) => {
-      // data: { room, sender, text, timestamp, status }
+      // data: { room, senderId, receiverId, senderName, text, timestamp, status, id, conversationId }
+      // Emit to the specific conversation room (for anyone who has the chat window open)
       io.to(data.room).emit("new-message", data);
+      
+      // Also emit to the receiver's personal room for global sidebar updates / toast notifications
+      if (data.receiverId) {
+        io.to(`user-${data.receiverId}`).emit("global-new-message", data);
+      }
+      // Also emit to the sender's personal room so their sidebar updates in real-time
+      if (data.senderId) {
+        io.to(`user-${data.senderId}`).emit("global-new-message", data);
+      }
     });
 
     socket.on("message-status-update", (data) => {
-      // data: { room, messageId, status }
+      // data: { room, messageId, status, receiverId, senderId }
+      // emit to the conversation room
       io.to(data.room).emit("message-status-updated", data);
+      
+      // Emit to the original sender's personal room so their UI updates globally
+      if (data.senderId) {
+        io.to(`user-${data.senderId}`).emit("global-status-updated", data);
+      }
     });
 
     socket.on("disconnect", () => {

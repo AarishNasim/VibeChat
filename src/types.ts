@@ -29,16 +29,20 @@ export interface Message {
   text: string;
   timestamp: number;
   status?: 'sent' | 'delivered' | 'seen';
+  conversationId?: string;
+  receiverId?: string;
 }
 
 export interface Conversation {
   id: string;
   user: {
+    id: string;
     name: string;
     avatar: string;
   };
   lastMessage: string;
   unread: boolean;
+  timestamp?: number;
 }
 
 export interface Profile {

@@ -5,6 +5,22 @@ import { Home, Search, MessageCircle, User, Heart, MessageSquare, Share2, Music2
 import { AppView, Video, Conversation, Message, Profile, Comment } from './types.ts';
 import { supabase } from './lib/supabase';
 
+// Bulletproof fallback UUID generator
+const generateUUID = (): string => {
+  if (typeof window !== 'undefined' && window.crypto && window.crypto.randomUUID) {
+    try {
+      return window.crypto.randomUUID();
+    } catch (e) {
+      // Fall through to fallback
+    }
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+};
+
 const GUEST_PROFILE: Profile = {
   name: 'KaaBI',
   handle: '@KaaBI',
@@ -49,9 +65,9 @@ const MOCK_VIDEOS: Video[] = [
 ];
 
 const MOCK_CHATS: Conversation[] = [
-  { id: 'global', user: { name: 'Faisal KaaBI', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=global' }, lastMessage: 'Welcome to the world!', unread: true },
-  { id: '1', user: { name: 'Aarish', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=aarish' }, lastMessage: 'Bhai video check kar!', unread: false },
-  { id: '2', user: { name: 'Himanshu', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=sky' }, lastMessage: 'Let\'s collaborate soon.', unread: false }
+  { id: 'global', user: { id: 'global', name: 'Faisal KaaBI', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=global' }, lastMessage: 'Welcome to the world!', unread: true },
+  { id: '1', user: { id: '1', name: 'Aarish', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=aarish' }, lastMessage: 'Bhai video check kar!', unread: false },
+  { id: '2', user: { id: '2', name: 'Himanshu', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=sky' }, lastMessage: 'Let\'s collaborate soon.', unread: false }
 ];
 
 const FILTERS = [
@@ -240,15 +256,22 @@ function ShareModal({
   profile: Profile;
   conversations: any[];
 }) {
-  const handleSend = async (user: any) => {
+  const handleSend = async (user: any, conversationId: string) => {
     const finalMessage = `Check out this Vibe! 🎥\n${video.url}`;
     
     // Save to DB
     await supabase.from('messages').insert({
+      conversation_id: conversationId,
       sender_id: profile.id,
       receiver_id: user.id,
       text: finalMessage
     });
+    
+    // Update conversation timestamp
+    await supabase.from('conversations').update({ 
+      last_message_text: finalMessage, 
+      last_message_timestamp: new Date().toISOString() 
+    }).eq('id', conversationId);
     
     alert(`Sent to @${user.name || user.username}!`);
     onClose();
@@ -272,7 +295,7 @@ function ShareModal({
             <div className="text-center text-gray-500 font-bold mt-10">No friends found. Start a chat first!</div>
           ) : (
             conversations.map(c => (
-              <div key={c.user.id} onClick={() => handleSend(c.user)} className="flex items-center justify-between p-3 bg-bg-alt rounded-2xl cursor-pointer hover:border-coral border border-transparent transition-colors">
+              <div key={c.user.id} onClick={() => handleSend(c.user, c.id)} className="flex items-center justify-between p-3 bg-bg-alt rounded-2xl cursor-pointer hover:border-coral border border-transparent transition-colors">
                 <div className="flex items-center gap-3">
                   <img src={c.user.avatar} className="w-10 h-10 rounded-full object-cover border border-gray-800" />
                   <div className="font-bold">@{c.user.name}</div>
@@ -305,7 +328,13 @@ export default function App() {
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [profile, setProfile] = useState<Profile>(GUEST_PROFILE);
   const [scrollToVideoId, setScrollToVideoId] = useState<string | null>(null);
+  const [toast, setToast] = useState<{show: boolean, text: string, avatar?: string} | null>(null);
   const socketRef = useRef<Socket | null>(null);
+  const activeChatRef = useRef(activeChat);
+
+  useEffect(() => {
+    activeChatRef.current = activeChat;
+  }, [activeChat]);
 
   const [isLightMode, setIsLightMode] = useState(() => {
     return localStorage.getItem('vibechatTheme') === 'light';
@@ -320,6 +349,18 @@ export default function App() {
 
     socketRef.current.on('connect', () => {
       console.log('Connected to socket server');
+      // Auto-authenticate socket if profile has an ID
+      const savedProfile = localStorage.getItem('vibechatProfile');
+      if (savedProfile) {
+        const parsed = JSON.parse(savedProfile);
+        if (parsed?.id && parsed.handle !== GUEST_PROFILE.handle) {
+          socketRef.current?.emit('authenticate', parsed.id);
+        }
+      }
+    });
+
+    socketRef.current.on('connect_error', (err) => {
+      console.error('Socket.io connection error:', err);
     });
 
     // Load profile from localStorage as a fast default
@@ -366,6 +407,10 @@ export default function App() {
           setProfile(mergedProfile);
           setAuthenticated(true);
           localStorage.setItem('vibechatProfile', JSON.stringify(mergedProfile));
+          
+          if (socketRef.current) {
+            socketRef.current.emit('authenticate', session.user.id);
+          }
         }
       }
     }
@@ -419,33 +464,83 @@ export default function App() {
   }, [currentView, scrollToVideoId, videos]);
 
   useEffect(() => {
-    if (authenticated && profile.id && currentView === 'chat') {
-      // Fetch messages for inbox
-      supabase.from('messages')
-        .select('*, sender:users!sender_id(id, username, avatar_url), receiver:users!receiver_id(id, username, avatar_url)')
-        .or(`sender_id.eq.${profile.id},receiver_id.eq.${profile.id}`)
-        .order('created_at', { ascending: false })
-        .then(({ data, error }) => {
-          if (!error && data) {
-            const deliveredIds = data.filter(m => m.receiver_id === profile.id && m.status === 'sent').map(m => m.id);
-            if (deliveredIds.length > 0) {
-              supabase.from('messages').update({ status: 'delivered' }).in('id', deliveredIds).then();
-            }
-            const convosMap = new Map();
-            data.forEach(msg => {
-              const otherUser = msg.sender_id === profile.id ? msg.receiver : msg.sender;
-              if (!otherUser) return;
-              if (!convosMap.has(otherUser.id)) {
-                convosMap.set(otherUser.id, {
-                  user: { id: otherUser.id, name: otherUser.username, avatar: otherUser.avatar_url || 'https://via.placeholder.com/40' },
-                  lastMessage: msg.text,
-                  room: [profile.id, otherUser.id].sort().join('-')
-                });
-              }
-            });
-            setConversations(Array.from(convosMap.values()));
+    if (authenticated && profile.id) {
+      if (!socketRef.current) return;
+      
+      const handleGlobalMessage = (data: Message) => {
+        // Only show toast if chat isn't currently open AND message is from someone else
+        if (data.senderId !== profile.id) {
+          if (activeChatRef.current?.room !== data.conversationId) {
+            setToast({ show: true, text: `${data.senderName}: ${data.text}`, avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + data.senderName });
+            setTimeout(() => setToast(null), 3000);
+            
+            // Auto-mark as delivered since user is online
+            supabase.from('messages').update({ status: 'delivered' }).eq('id', data.id).then();
+            socketRef.current?.emit('message-status-update', { room: data.conversationId, messageId: data.id, status: 'delivered', senderId: data.senderId });
           }
+        }
+        
+        // Fetch fresh conversations to update sidebar in real-time!
+        fetchConversations();
+      };
+
+      const handleGlobalStatus = (data: any) => {
+        // Fetch fresh conversations to update read status and counts in real-time!
+        fetchConversations();
+      };
+      
+      socketRef.current.on('global-new-message', handleGlobalMessage);
+      socketRef.current.on('global-status-updated', handleGlobalStatus);
+      
+      return () => {
+        socketRef.current?.off('global-new-message', handleGlobalMessage);
+        socketRef.current?.off('global-status-updated', handleGlobalStatus);
+      };
+    }
+  }, [authenticated, profile.id]);
+
+  const fetchConversations = async () => {
+    if (authenticated && profile.id) {
+      // 1. Mark unread messages as delivered if we are online
+      supabase.from('messages')
+        .update({ status: 'delivered' })
+        .eq('receiver_id', profile.id)
+        .eq('status', 'sent')
+        .then();
+
+      // Get unread conversations count
+      const { data: unreadData } = await supabase.from('messages')
+        .select('conversation_id')
+        .eq('receiver_id', profile.id)
+        .neq('status', 'seen');
+      const unreadConvoIds = new Set(unreadData?.map(m => m.conversation_id) || []);
+
+      // 2. Fetch conversations
+      const { data, error } = await supabase.from('conversations')
+        .select('*, p1:users!participant1_id(id, username, avatar_url), p2:users!participant2_id(id, username, avatar_url)')
+        .or(`participant1_id.eq.${profile.id},participant2_id.eq.${profile.id}`)
+        .order('last_message_timestamp', { ascending: false });
+        
+      if (!error && data) {
+        const convos = data.map((c: any) => {
+          const otherUser = c.participant1_id === profile.id ? c.p2 : c.p1;
+          return {
+            id: c.id,
+            room: c.id,
+            user: { id: otherUser?.id, name: otherUser?.username || 'User', avatar: otherUser?.avatar_url || 'https://via.placeholder.com/40' },
+            lastMessage: c.last_message_text || 'Started a conversation',
+            timestamp: new Date(c.last_message_timestamp || c.created_at).getTime(),
+            unread: unreadConvoIds.has(c.id)
+          };
         });
+        setConversations(convos);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (currentView === 'chat') {
+      fetchConversations();
     }
   }, [authenticated, profile.id, currentView]);
 
@@ -547,16 +642,25 @@ export default function App() {
                       whileHover={{ x: 4 }}
                       whileTap={{ scale: 0.98 }}
                       key={chat.room}
-                      className="flex items-center gap-3 p-3 rounded-2xl bg-bg-alt border border-gray-800/50 hover:border-coral/30 transition-all cursor-pointer"
-                      onClick={() => setActiveChat({ room: chat.room, user: chat.user })}
+                      className={`flex items-center gap-3 p-3 rounded-2xl bg-bg-alt border ${chat.unread ? 'border-coral/50 shadow-md shadow-coral/5' : 'border-gray-800/50'} hover:border-coral/30 transition-all cursor-pointer`}
+                      onClick={() => {
+                        // Optimistically mark as read locally
+                        setConversations(prev => prev.map(c => c.id === chat.id ? { ...c, unread: false } : c));
+                        setActiveChat({ room: chat.room, user: chat.user });
+                      }}
                     >
                       <div className="relative">
                         <img src={chat.user.avatar} className="w-12 h-12 rounded-full object-cover bg-indigo-vibe/10 border-2 border-white/5" alt="" />
                         <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-bg-card rounded-full" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <h3 className="font-bold text-sm">@{chat.user.name}</h3>
-                        <p className="text-xs text-gray-500 truncate font-medium">{chat.lastMessage}</p>
+                        <div className="flex justify-between items-center">
+                          <h3 className={`text-sm ${chat.unread ? 'font-black text-white' : 'font-bold text-gray-200'}`}>@{chat.user.name}</h3>
+                          {chat.unread && (
+                            <span className="w-2.5 h-2.5 rounded-full bg-coral animate-pulse shadow-[0_0_8px_#ff4500]" />
+                          )}
+                        </div>
+                        <p className={`text-xs truncate ${chat.unread ? 'text-coral font-bold' : 'text-gray-500 font-medium'}`}>{chat.lastMessage}</p>
                       </div>
                     </motion.div>
                   ))}
@@ -568,10 +672,28 @@ export default function App() {
                   <SearchModal 
                     profile={profile} 
                     onClose={() => setIsSearchOpen(false)} 
-                    onSelectUser={(u) => {
+                    onSelectUser={async (u) => {
                       setIsSearchOpen(false);
-                      const room = [profile.id, u.id].sort().join('-');
-                      setActiveChat({ room, user: { id: u.id, name: u.username, avatar: u.avatar_url || 'https://via.placeholder.com/40' } });
+                      const p1 = profile.id < u.id ? profile.id : u.id;
+                      const p2 = profile.id < u.id ? u.id : profile.id;
+                      
+                      let { data: conv } = await supabase.from('conversations')
+                        .select('*')
+                        .eq('participant1_id', p1)
+                        .eq('participant2_id', p2)
+                        .single();
+                        
+                      if (!conv) {
+                        const { data: newConv } = await supabase.from('conversations')
+                          .insert({ participant1_id: p1, participant2_id: p2 })
+                          .select().single();
+                        conv = newConv;
+                      }
+                      
+                      if (conv) {
+                        setActiveChat({ room: conv.id, user: { id: u.id, name: u.username, avatar: u.avatar_url || 'https://via.placeholder.com/40' } });
+                        fetchConversations(); // Update sidebar immediately
+                      }
                     }} 
                   />
                 )}
@@ -630,6 +752,22 @@ export default function App() {
           )}
         </AnimatePresence>
       </main>
+
+      {/* Global Toast Notification */}
+      <AnimatePresence>
+        {toast?.show && (
+          <motion.div
+            initial={{ opacity: 0, y: -50, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -50, scale: 0.9 }}
+            className="fixed top-20 left-1/2 -translate-x-1/2 z-[200] bg-bg-card/90 backdrop-blur-xl border border-gray-800 shadow-2xl rounded-full p-2 pr-6 flex items-center gap-3 cursor-pointer"
+            onClick={() => setToast(null)}
+          >
+            <img src={toast.avatar} className="w-8 h-8 rounded-full border border-gray-700" alt="" />
+            <span className="text-sm font-bold text-white tracking-wide truncate max-w-[200px]">{toast.text}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Chat Overlay */}
       <AnimatePresence>
@@ -751,6 +889,13 @@ export default function App() {
               setPassword('');
               setLoginError('');
               localStorage.setItem('vibechatProfile', JSON.stringify(finalProfile));
+
+              // Authenticate socket immediately after login
+              if (socketRef.current && finalProfile.id) {
+                socketRef.current.emit('authenticate', finalProfile.id);
+              }
+              // Fetch conversations immediately to hydrate the inbox
+              fetchConversations();
             }}
           />
         )}
@@ -1372,27 +1517,27 @@ function VideoPlayer({ video, onOpenComments, onShare }: { video: Video; onOpenC
       </div>
 
       {/* User Info Overlay */}
-      <div className="absolute left-4 bottom-6 md:left-8 md:bottom-10 max-w-[75%] md:max-w-[70%] z-20">
-        <div className="flex items-center gap-3 md:gap-4 mb-3 md:mb-4">
+      <div className="absolute left-4 bottom-6 md:left-6 md:bottom-8 max-w-[75%] md:max-w-[70%] z-20">
+        <div className="flex items-center gap-2 md:gap-3 mb-2 md:mb-3">
           <div className="relative group cursor-pointer">
-            <img src={video.user.avatar} className="w-11 h-11 md:w-14 md:h-14 rounded-2xl border-2 border-white/20 p-0.5 bg-white/5" alt="" />
-            <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-indigo-vibe rounded-lg flex items-center justify-center border-2 border-black text-white text-[10px] font-black transition-transform group-hover:scale-110">+</div>
+            <img src={video.user.avatar} className="w-8 h-8 md:w-10 md:h-10 rounded-full border border-white/20 p-0.5 bg-white/5 object-cover" alt="" />
+            <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-indigo-vibe rounded-full flex items-center justify-center border border-black text-white text-[8px] font-black transition-transform group-hover:scale-110">+</div>
           </div>
           <div className="flex flex-col">
-            <span className="font-black text-lg md:text-xl tracking-tighter leading-none mb-1 shadow-sm shadow-black">@{video.user.name}</span>
-            <span className="text-[9px] md:text-[10px] font-bold uppercase tracking-[0.2em] text-orange">Suggestive Vibe</span>
+            <span className="font-bold text-sm md:text-base tracking-tight leading-none mb-0.5 shadow-sm shadow-black">@{video.user.name}</span>
+            <span className="text-[8px] md:text-[9px] font-bold uppercase tracking-[0.1em] text-orange">Suggestive Vibe</span>
           </div>
         </div>
-        <p className="text-xs md:text-base font-bold leading-relaxed line-clamp-2 md:line-clamp-none mb-3 md:mb-4 text-white/95">
+        <p className="text-xs md:text-sm font-normal leading-relaxed line-clamp-2 md:line-clamp-3 mb-2 md:mb-3 text-white/90">
           {video.description}
         </p>
-        <div className="flex items-center gap-2.5 md:gap-3 bg-white/5 backdrop-blur-md px-3 py-2 md:px-4 md:py-2.5 rounded-2xl w-fit border border-white/10">
-          <Music2 className="w-3.5 h-3.5 md:w-4 md:h-4 text-orange" />
-          <div className="overflow-hidden w-36 md:w-40">
+        <div className="flex items-center gap-2 md:gap-2 bg-white/5 backdrop-blur-md px-2 py-1.5 md:px-3 md:py-2 rounded-full w-fit border border-white/10">
+          <Music2 className="w-3 h-3 md:w-3.5 md:h-3.5 text-orange" />
+          <div className="overflow-hidden w-32 md:w-36">
             <motion.div
-              animate={{ x: [160, -160] }}
+              animate={{ x: [140, -140] }}
               transition={{ duration: 8, repeat: Infinity, ease: 'linear' }}
-              className="text-[9px] md:text-[10px] font-black whitespace-nowrap uppercase tracking-widest"
+              className="text-[8px] md:text-[9px] font-bold whitespace-nowrap uppercase tracking-wider"
             >
               Trending Vibe - {video.user.name} - Official Content
             </motion.div>
@@ -1406,7 +1551,21 @@ function VideoPlayer({ video, onOpenComments, onShare }: { video: Video; onOpenC
 function ChatWindow({ conversationId, user, profile, onClose, socket }: { conversationId: string, user: any, profile: Profile, onClose: () => void, socket: Socket }) {
   const [inputText, setInputText] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
+  const [isConnected, setIsConnected] = useState(socket.connected);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleConnect = () => setIsConnected(true);
+    const handleDisconnect = () => setIsConnected(false);
+
+    socket.on('connect', handleConnect);
+    socket.on('disconnect', handleDisconnect);
+
+    return () => {
+      socket.off('connect', handleConnect);
+      socket.off('disconnect', handleDisconnect);
+    };
+  }, [socket]);
 
   useEffect(() => {
     // Fetch historical messages from Supabase
@@ -1414,7 +1573,7 @@ function ChatWindow({ conversationId, user, profile, onClose, socket }: { conver
       const { data, error } = await supabase
         .from('messages')
         .select('*')
-        .or(`and(sender_id.eq.${profile.id},receiver_id.eq.${user.id}),and(sender_id.eq.${user.id},receiver_id.eq.${profile.id})`)
+        .eq('conversation_id', conversationId)
         .order('created_at', { ascending: true });
       if (!error && data) {
         setMessages(data.map(m => ({
@@ -1423,40 +1582,66 @@ function ChatWindow({ conversationId, user, profile, onClose, socket }: { conver
           senderName: m.sender_id === profile.id ? 'me' : user.name,
           text: m.text,
           timestamp: new Date(m.created_at).getTime(),
-          status: m.status
+          status: m.status,
+          conversationId: m.conversation_id
         })));
 
         const unreadIds = data.filter((m: any) => m.receiver_id === profile.id && m.status !== 'seen').map((m: any) => m.id);
         if (unreadIds.length > 0) {
           await supabase.from('messages').update({ status: 'seen' }).in('id', unreadIds);
           unreadIds.forEach((id: string) => {
-            socket.emit('message-status-update', { room: conversationId, messageId: id, status: 'seen' });
+            socket.emit('message-status-update', { room: conversationId, messageId: id, status: 'seen', senderId: user.id });
           });
         }
       }
     };
     if (profile.id) fetchHistory();
 
-    socket.emit('join-room', conversationId);
+    const joinRoom = () => {
+      socket.emit('join-room', conversationId);
+    };
 
-    socket.on('new-message', (data: Message) => {
+    joinRoom();
+    socket.on('connect', joinRoom);
+
+    const handleNewMessage = (data: Message) => {
+      // If we are the sender, we already have this message (inserted optimistically with UUID)
+      if (data.senderId === profile.id) {
+        setMessages(prev => {
+          const hasReal = prev.some(m => m.id === data.id);
+          if (hasReal) return prev;
+          
+          // Match any optimistic message by matching text content within 15 seconds
+          const optIndex = prev.findIndex(m => m.senderId === profile.id && m.text === data.text && Math.abs(m.timestamp - data.timestamp) < 15000);
+          if (optIndex !== -1) {
+            return prev.map((m, idx) => idx === optIndex ? data : m);
+          }
+          return [...prev, data];
+        });
+        return;
+      }
+
       setMessages(prev => {
         if (prev.find(m => m.id === data.id)) return prev;
         return [...prev, data];
       });
-      if (data.senderId !== profile.id) {
-        supabase.from('messages').update({ status: 'seen' }).eq('id', data.id).then();
-        socket.emit('message-status-update', { room: conversationId, messageId: data.id, status: 'seen' });
-      }
-    });
 
-    socket.on('message-status-updated', ({ messageId, status }) => {
+      // Auto-mark as seen and notify sender
+      supabase.from('messages').update({ status: 'seen' }).eq('id', data.id).then();
+      socket.emit('message-status-update', { room: conversationId, messageId: data.id, status: 'seen', senderId: data.senderId });
+    };
+
+    const handleStatusUpdated = ({ messageId, status }: { messageId: string, status: 'sent' | 'delivered' | 'seen' }) => {
       setMessages(prev => prev.map(m => m.id === messageId ? { ...m, status } : m));
-    });
+    };
+
+    socket.on('new-message', handleNewMessage);
+    socket.on('message-status-updated', handleStatusUpdated);
 
     return () => {
-      socket.off('new-message');
-      socket.off('message-status-updated');
+      socket.off('connect', joinRoom);
+      socket.off('new-message', handleNewMessage);
+      socket.off('message-status-updated', handleStatusUpdated);
     };
   }, [conversationId, socket, profile.id, user.id]);
 
@@ -1471,40 +1656,44 @@ function ChatWindow({ conversationId, user, profile, onClose, socket }: { conver
     const text = inputText.trim();
     setInputText('');
     
-    // Optimistic UI update
-    const tempId = Math.random().toString(36).substr(2, 9);
-    const newMessage = {
-      room: conversationId,
+    // Generate a permanent UUID client-side! This prevents ANY race conditions.
+    const messageId = generateUUID();
+    
+    const newMessage: Message = {
+      conversationId: conversationId,
       senderId: profile.id,
-      senderName: 'me',
+      senderName: profile.handle,
       text,
       timestamp: Date.now(),
-      id: tempId
+      id: messageId,
+      status: 'sent',
+      receiverId: user.id
     };
+    
+    // Optimistic UI update
     setMessages(prev => [...prev, newMessage]);
 
-    // Save to Supabase
-    const { data, error } = await supabase.from('messages').insert({
+    // Save to Supabase using the exact client-side generated UUID
+    const { error } = await supabase.from('messages').insert({
+      id: messageId,
+      conversation_id: conversationId,
       sender_id: profile.id,
       receiver_id: user.id,
-      text: text
-    }).select().single();
+      text: text,
+      status: 'sent'
+    });
 
-    if (!error && data) {
-      // Emit via socket
-      const finalMessage = {
-        room: conversationId,
-        senderId: profile.id,
-        senderName: profile.handle,
-        text,
-        timestamp: new Date(data.created_at).getTime(),
-        id: data.id,
-        status: data.status || 'sent'
-      };
-      socket.emit('send-message', finalMessage);
-      
-      // Update local message ID to match DB
-      setMessages(prev => prev.map(m => m.id === tempId ? finalMessage : m));
+    // Update conversation timestamp
+    await supabase.from('conversations').update({ 
+      last_message_text: text, 
+      last_message_timestamp: new Date().toISOString() 
+    }).eq('id', conversationId);
+
+    if (!error) {
+      // Emit via socket with the room identifier
+      socket.emit('send-message', { ...newMessage, room: conversationId });
+    } else {
+      console.error("Error inserting message:", error);
     }
   };
 
@@ -1522,7 +1711,9 @@ function ChatWindow({ conversationId, user, profile, onClose, socket }: { conver
         </button>
         <div className="flex flex-col items-center">
           <h2 className="font-black text-xl tracking-tighter leading-none">{user.name || user.username}</h2>
-          <span className="text-[10px] text-green-500 font-bold uppercase tracking-widest mt-1">Live Connection</span>
+          <span className={`text-[10px] font-bold uppercase tracking-widest mt-1 ${isConnected ? 'text-green-500 animate-pulse' : 'text-red-500 animate-pulse'}`}>
+            {isConnected ? '• Live Connection' : '• Offline / Reconnecting'}
+          </span>
         </div>
         <div className="w-12 h-12 rounded-xl border border-gray-800 bg-bg-alt overflow-hidden">
           <img src={user.avatar || user.avatar_url || 'https://via.placeholder.com/40'} className="w-full h-full object-cover" alt="" />
@@ -1649,7 +1840,7 @@ function LoginModal({
             value={password}
             onChange={(e) => onPasswordChange(e.target.value)}
             type="password"
-            placeholder="••••••••"
+            placeholder="Enter your password"
             className="w-full bg-bg-alt border border-gray-800 rounded-3xl px-5 py-4 text-white outline-none focus:border-coral transition-all"
           />
 
